@@ -29,6 +29,7 @@ import pandas as pd
 import io
 import os
 import shutil
+import importlib.util
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -454,6 +455,18 @@ def get_ocr_reader():
         errors.append(f"rapidocr: {e}")
 
     raise RuntimeError("OCR motoru yüklenemedi. " + " | ".join(errors))
+
+def is_ocr_available() -> tuple[bool, str]:
+    has_easyocr = importlib.util.find_spec("easyocr") is not None
+    has_rapidocr = importlib.util.find_spec("rapidocr_onnxruntime") is not None
+    if has_easyocr or has_rapidocr:
+        engines = []
+        if has_easyocr:
+            engines.append("easyocr")
+        if has_rapidocr:
+            engines.append("rapidocr-onnxruntime")
+        return True, f"Kullanılabilir OCR motoru: {', '.join(engines)}"
+    return False, "OCR devre dışı: OCR paketleri kurulu değil."
 
 def read_ocr_text(uploaded_file) -> str:
     img = Image.open(uploaded_file)
@@ -1352,10 +1365,16 @@ elif page == "💰 Günlük Kasa":
         st.session_state.daily_cash_ocr_status = ""
 
     with st.expander("📷 Fotoğraftan Otomatik Oku (Banka / Visa)"):
+        ocr_ok, ocr_msg = is_ocr_available()
+        if not ocr_ok:
+            st.info(ocr_msg)
+            st.caption("OCR kullanmak için requirements içine easyocr veya rapidocr-onnxruntime ekleyip yeniden deploy et.")
+        else:
+            st.caption(ocr_msg)
         upload = st.file_uploader("Rapor görseli yükle", type=["jpg", "jpeg", "png", "webp"], key="daily_cash_ocr_upload")
         if upload is not None:
             st.image(upload, caption="Yüklenen görsel", use_container_width=True)
-            if st.button("OCR ile Tutarları Oku", key="daily_cash_ocr_btn", use_container_width=True):
+            if st.button("OCR ile Tutarları Oku", key="daily_cash_ocr_btn", use_container_width=True, disabled=not ocr_ok):
                 try:
                     ocr_text = read_ocr_text(upload)
                     st.session_state.daily_cash_ocr_text_cache = ocr_text
