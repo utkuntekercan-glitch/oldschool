@@ -31,12 +31,14 @@ import os
 import shutil
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from PIL import Image, ImageOps
 
 APP_TITLE = "Oldschool Esports Center • Finans Paneli (FINAL v4)"
 DB_PATH = Path("oldschool_finance.db")
@@ -373,6 +375,81 @@ def tr_money(x: float) -> str:
     except Exception:
         s = "0"
     return f"₺{s}"
+
+def parse_amount_token(token: str) -> float | None:
+    try:
+        s = str(token).strip()
+        s = s.replace("₺", "").replace("TL", "").replace("tl", "")
+        s = re.sub(r"[^0-9,.\-]", "", s)
+        if not s:
+            return None
+
+        if "," in s and "." in s:
+            if s.rfind(",") > s.rfind("."):
+                s = s.replace(".", "").replace(",", ".")
+            else:
+                s = s.replace(",", "")
+        elif "," in s:
+            parts = s.split(",")
+            if len(parts) == 2 and len(parts[1]) <= 2:
+                s = s.replace(".", "").replace(",", ".")
+            else:
+                s = s.replace(",", "")
+        else:
+            parts = s.split(".")
+            if len(parts) > 1 and all(len(p) == 3 for p in parts[1:]):
+                s = "".join(parts)
+
+        return float(s)
+    except Exception:
+        return None
+
+def extract_amount_from_line(line: str) -> float | None:
+    matches = re.findall(r"[-+]?\d[\d.,]*", str(line))
+    for m in reversed(matches):
+        val = parse_amount_token(m)
+        if val is not None:
+            return val
+    return None
+
+def extract_bank_visa_amounts(ocr_text: str) -> tuple[float | None, float | None]:
+    lines = [ln.strip() for ln in str(ocr_text).splitlines() if ln.strip()]
+    bank_keywords = ("banka", "bank", "nakit", "cash")
+    visa_keywords = ("visa", "kart", "card", "kredi kart")
+
+    bank_val = None
+    visa_val = None
+
+    for ln in lines:
+        low = ln.lower()
+        if bank_val is None and any(k in low for k in bank_keywords):
+            bank_val = extract_amount_from_line(ln)
+        if visa_val is None and any(k in low for k in visa_keywords):
+            visa_val = extract_amount_from_line(ln)
+
+    if bank_val is None:
+        m = re.search(r"(?:banka|bank|nakit|cash)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
+        if m:
+            bank_val = parse_amount_token(m.group(1))
+    if visa_val is None:
+        m = re.search(r"(?:visa|kart|card|kredi kart)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
+        if m:
+            visa_val = parse_amount_token(m.group(1))
+
+    return bank_val, visa_val
+
+@st.cache_resource(show_spinner=False)
+def get_ocr_reader():
+    import easyocr
+    return easyocr.Reader(["tr", "en"], gpu=False)
+
+def read_ocr_text(uploaded_file) -> str:
+    img = Image.open(uploaded_file)
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    arr = np.array(img)
+    reader = get_ocr_reader()
+    result = reader.readtext(arr, detail=0, paragraph=False)
+    return "\n".join([str(x) for x in result if str(x).strip()])
 
 # ---------- DISPLAY HELPERS ----------
 def clean_category_series(s: pd.Series) -> pd.Series:
@@ -1239,10 +1316,44 @@ elif page == "💰 Günlük Kasa":
     st.subheader("💰 Günlük Kasa Girişi (Toplam Nakit / Toplam Kart)")
     if is_month_locked(conn, selected_month):
         st.warning("Bu ay kilitli. Kayıt ekleme/düzenleme kapalı.")
-    d = st.date_input("Tarih", value=today)
-    cash = st.number_input("Nakit (₺)", min_value=0.0, step=100.0, format="%.2f")
-    card = st.number_input("Kart (₺)", min_value=0.0, step=100.0, format="%.2f")
-    note = st.text_input("Not (opsiyonel)")
+    if "cash_form_date" not in st.session_state:
+        st.session_state.cash_form_date = today
+    if "cash_form_cash" not in st.session_state:
+        st.session_state.cash_form_cash = 0.0
+    if "cash_form_card" not in st.session_state:
+        st.session_state.cash_form_card = 0.0
+    if "cash_form_note" not in st.session_state:
+        st.session_state.cash_form_note = ""
+
+    with st.expander("📷 Fotoğraftan Otomatik Oku (Banka / Visa)"):
+        upload = st.file_uploader("Rapor görseli yükle", type=["jpg", "jpeg", "png", "webp"], key="daily_cash_ocr_upload")
+        if upload is not None:
+            st.image(upload, caption="Yüklenen görsel", use_container_width=True)
+            if st.button("OCR ile Tutarları Oku", key="daily_cash_ocr_btn", use_container_width=True):
+                try:
+                    ocr_text = read_ocr_text(upload)
+                    bank_val, visa_val = extract_bank_visa_amounts(ocr_text)
+
+                    if bank_val is not None:
+                        st.session_state.cash_form_cash = float(bank_val)
+                    if visa_val is not None:
+                        st.session_state.cash_form_card = float(visa_val)
+                    if bank_val is not None or visa_val is not None:
+                        auto_note = f"OCR Banka: {tr_money(bank_val) if bank_val is not None else '-'} | OCR Visa: {tr_money(visa_val) if visa_val is not None else '-'}"
+                        st.session_state.cash_form_note = auto_note
+                        st.success("OCR tamamlandı. Değerler forma yazıldı, kontrol edip kaydet.")
+                    else:
+                        st.warning("Banka/Visa tutarı okunamadı. Görseli kırpıp tekrar dene.")
+
+                    st.text_area("OCR metni (kontrol amaçlı)", value=ocr_text, height=120, key="daily_cash_ocr_text")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"OCR çalıştırılamadı: {e}. Gerekirse requirements'e easyocr ekleyip yeniden deploy et.")
+
+    d = st.date_input("Tarih", key="cash_form_date")
+    cash = st.number_input("Nakit (₺)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_cash")
+    card = st.number_input("Kart (₺)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_card")
+    note = st.text_input("Not (opsiyonel)", key="cash_form_note")
 
     locked = is_month_locked(conn, selected_month)
 
