@@ -23,6 +23,7 @@ from pathlib import Path
 from datetime import date, datetime
 import re
 import unicodedata
+from html import escape
 import pandas as pd
 
 import io
@@ -387,13 +388,11 @@ def render_mobile_cards(
     title_fields = title_fields or []
 
     for _, row in df.iterrows():
+        card_lines = []
         title_parts = []
         for t in title_fields:
             if t in df.columns and pd.notna(row[t]) and str(row[t]).strip() != "":
-                title_parts.append(str(row[t]))
-
-        if title_parts:
-            st.markdown(f"**{' | '.join(title_parts)}**")
+                title_parts.append(escape(str(row[t])))
 
         for field in fields:
             if field not in df.columns or field in title_fields:
@@ -410,8 +409,19 @@ def render_mobile_cards(
             else:
                 val_str = str(val)
 
-            st.markdown(f"**{field}:** {val_str}")
-        st.divider()
+            card_lines.append(
+                f"<div class='mobile-card-row'><span class='mobile-card-label'>{escape(field)}</span><span class='mobile-card-value'>{escape(val_str)}</span></div>"
+            )
+
+        title_html = ""
+        if title_parts:
+            title_html = f"<div class='mobile-card-title'>{' | '.join(title_parts)}</div>"
+
+        body_html = "".join(card_lines)
+        st.markdown(
+            f"<div class='mobile-card'>{title_html}<div class='mobile-card-body'>{body_html}</div></div>",
+            unsafe_allow_html=True,
+        )
 
 
 # ---------- PDF REPORTS ----------
@@ -732,6 +742,42 @@ div[data-testid="stDataFrame"] {
   box-shadow: 0 2px 10px rgba(17,24,39,0.04);
 }
 hr { border-color: rgba(31,41,55,0.08); }
+.mobile-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
+  border: 1px solid rgba(31,41,55,0.12);
+  border-radius: 14px;
+  padding: 0.75rem 0.85rem;
+  box-shadow: 0 4px 14px rgba(17,24,39,0.06);
+  margin-bottom: 0.65rem;
+}
+.mobile-card-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #111827;
+  border-left: 3px solid #c0392b;
+  padding-left: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+.mobile-card-body {
+  display: grid;
+  row-gap: 0.25rem;
+}
+.mobile-card-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.mobile-card-label {
+  font-size: 0.82rem;
+  color: #6b7280;
+}
+.mobile-card-value {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: right;
+}
 
 /* Mobile optimizations */
 @media (max-width: 768px) {
@@ -753,6 +799,19 @@ hr { border-color: rgba(31,41,55,0.08); }
   }
   div[data-testid="stDataFrame"] {
     border-radius: 10px;
+  }
+  .mobile-card {
+    border-radius: 12px;
+    padding: 0.68rem 0.72rem;
+  }
+  .mobile-card-title {
+    font-size: 0.9rem;
+  }
+  .mobile-card-label {
+    font-size: 0.8rem;
+  }
+  .mobile-card-value {
+    font-size: 0.86rem;
   }
 }
 </style>"""
