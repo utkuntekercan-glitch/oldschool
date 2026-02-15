@@ -156,6 +156,13 @@ def is_valid_ym(s: str) -> bool:
     except Exception:
         return False
 
+def shift_ym(ym_str: str, delta_months: int) -> str:
+    y, m = parse_ym(ym_str)
+    idx = (y * 12 + (m - 1)) + int(delta_months)
+    ny = idx // 12
+    nm = (idx % 12) + 1
+    return f"{ny:04d}-{nm:02d}"
+
 def month_range(ym_str: str):
     y, m = parse_ym(ym_str)
     start = date(y, m, 1)
@@ -1041,11 +1048,32 @@ seed_defaults_if_empty(conn, default_month)
 
 with st.sidebar:
     st.header("Ay Seçimi")
-    selected_month_input = st.text_input("Ay (YYYY-AA)", value=default_month, help="Örn: 2026-02")
-    selected_month = selected_month_input.strip()
-    if not is_valid_ym(selected_month):
-        st.warning(f"Geçersiz ay formatı: '{selected_month_input}'. Varsayılan ay kullanılıyor: {default_month}")
-        selected_month = default_month
+    if "selected_month_ui" not in st.session_state or not is_valid_ym(st.session_state.selected_month_ui):
+        st.session_state.selected_month_ui = default_month
+
+    nav_l, nav_r = st.columns([1, 1])
+    with nav_l:
+        if st.button("◀ Önceki", use_container_width=True):
+            st.session_state.selected_month_ui = shift_ym(st.session_state.selected_month_ui, -1)
+    with nav_r:
+        if st.button("Sonraki ▶", use_container_width=True):
+            st.session_state.selected_month_ui = shift_ym(st.session_state.selected_month_ui, 1)
+
+    month_options = [shift_ym(default_month, -i) for i in range(0, 18)]
+    current_sel = st.session_state.selected_month_ui if st.session_state.selected_month_ui in month_options else default_month
+    quick_sel = st.selectbox("Hızlı Seçim", month_options, index=month_options.index(current_sel))
+    st.session_state.selected_month_ui = quick_sel
+
+    with st.expander("Manuel giriş (YYYY-AA)"):
+        manual_month = st.text_input("Ay", value=st.session_state.selected_month_ui, key="manual_month_input")
+        if st.button("Uygula", use_container_width=True):
+            if is_valid_ym(manual_month.strip()):
+                st.session_state.selected_month_ui = manual_month.strip()
+                st.rerun()
+            else:
+                st.warning(f"Geçersiz ay formatı: '{manual_month}'.")
+
+    selected_month = st.session_state.selected_month_ui.strip()
     st.caption("Bu ay üzerinden raporlar gösterilir.")
     st.divider()
     locked_now = is_month_locked(conn, selected_month)
