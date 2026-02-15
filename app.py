@@ -694,15 +694,25 @@ div[data-testid="stMetric"] {
   box-shadow: 0 2px 8px rgba(17,24,39,0.05);
 }
 div[data-testid="stMetric"] label { color: rgba(17,24,39,0.70) !important; }
-.stButton>button {
+.stButton>button, .stFormSubmitButton>button, .stDownloadButton>button {
   border-radius: 12px;
   padding: 0.62rem 0.95rem;
   border: 1px solid rgba(31,41,55,0.12);
   background: #ffffff;
+  color: #1f2937;
 }
-.stButton>button:hover {
+.stButton>button:hover, .stFormSubmitButton>button:hover, .stDownloadButton>button:hover {
   background: rgba(17,24,39,0.03);
   border-color: rgba(31,41,55,0.18);
+}
+.stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
+  background: #c0392b;
+  border-color: #a93226;
+  color: #ffffff;
+}
+.stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
+  background: #a93226;
+  border-color: #922b21;
 }
 div[data-testid="stDataFrame"] {
   background: #ffffff;
@@ -727,7 +737,7 @@ hr { border-color: rgba(31,41,55,0.08); }
     padding: 10px 12px;
     border-radius: 12px;
   }
-  .stButton>button, .stDownloadButton>button {
+  .stButton>button, .stFormSubmitButton>button, .stDownloadButton>button {
     width: 100%;
     min-height: 2.4rem;
   }
