@@ -1,4 +1,23 @@
 import streamlit as st
+# ----- FORCE LIGHT THEME -----
+st.set_page_config(
+    page_title="Oldschool Finans",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+<style>
+[data-testid="stSidebar"] {
+    background-color: #ffffff;
+}
+[data-testid="stSidebar"] * {
+    color: #1f2937 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+# ----- END THEME -----
+
 import sqlite3
 from pathlib import Path
 from datetime import date, datetime
