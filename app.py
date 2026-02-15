@@ -12,48 +12,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
 APP_TITLE = "Oldschool Esports Center • Finans Paneli (FINAL v4)"
 DB_PATH = Path("oldschool_finance.db")
-
-
-# ---------- PDF FONT (TR) ----------
-_PDF_FONT_READY = False
-def ensure_pdf_font():
-    """Register DejaVuSans for Turkish characters in PDFs.
-Put DejaVuSans.ttf next to app.py (optional: DejaVuSans-Bold.ttf).
-Falls back to Helvetica if font file missing (won't crash)."""
-    global _PDF_FONT_READY
-    if _PDF_FONT_READY:
-        return
-    try:
-        base_dir = Path(__file__).resolve().parent
-        regular = base_dir / "DejaVuSans.ttf"
-        if regular.exists():
-            pdfmetrics.registerFont(TTFont("DejaVuSans", str(regular)))
-            bold = base_dir / "DejaVuSans-Bold.ttf"
-            if bold.exists():
-                pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", str(bold)))
-            _PDF_FONT_READY = True
-        else:
-            _PDF_FONT_READY = False
-    except Exception:
-        _PDF_FONT_READY = False
-
-def pdf_regular_font() -> str:
-    return "DejaVuSans" if _PDF_FONT_READY else "Helvetica"
-
-def pdf_bold_font() -> str:
-    if _PDF_FONT_READY:
-        # if bold registered use it else regular
-        try:
-            pdfmetrics.getFont("DejaVuSans-Bold")
-            return "DejaVuSans-Bold"
-        except Exception:
-            return "DejaVuSans"
-    return "Helvetica-Bold"
 
 def ensure_backup():
     """Her açılışta veritabanını backups/ klasörüne kopyalar."""
@@ -435,17 +396,17 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
     w, h = A4
 
     y = h - 2*cm
-    c.setFont(pdf_bold_font(), 16)
+    c.setFont("Helvetica-Bold", 16)
     c.drawString(2*cm, y, "Oldschool Esports Center Finans Raporu")
     y -= 0.8*cm
-    c.setFont(pdf_regular_font(), 11)
+    c.setFont("Helvetica", 11)
     c.drawString(2*cm, y, f"Ay: {ym_str}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 1.2*cm
 
-    c.setFont(pdf_bold_font(), 12)
+    c.setFont("Helvetica-Bold", 12)
     c.drawString(2*cm, y, "Özet")
     y -= 0.6*cm
-    c.setFont(pdf_regular_font(), 11)
+    c.setFont("Helvetica", 11)
     for ln in [
         f"Nakit Gelir:  {tr_money(cash_sum)}",
         f"Kart Gelir:   {tr_money(card_sum)}",
@@ -457,10 +418,10 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
         y -= 0.5*cm
 
     y -= 0.3*cm
-    c.setFont(pdf_bold_font(), 12)
+    c.setFont("Helvetica-Bold", 12)
     c.drawString(2*cm, y, "Gider Kırılımı (Kategori)")
     y -= 0.6*cm
-    c.setFont(pdf_regular_font(), 10)
+    c.setFont("Helvetica", 10)
     top = by_cat.head(12) if len(by_cat) else by_cat
     for _, r in top.iterrows():
         c.drawString(2*cm, y, str(r["Kategori"])[:38])
@@ -473,7 +434,7 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
     if charts:
         c.showPage()
         y = h - 2*cm
-        c.setFont(pdf_bold_font(), 12)
+        c.setFont("Helvetica-Bold", 12)
         c.drawString(2*cm, y, "Grafikler")
         y -= 0.8*cm
         for img in charts:
@@ -542,17 +503,17 @@ def build_yearly_pdf(conn, year: int) -> bytes:
     w, h = A4
 
     y = h - 2*cm
-    c.setFont(pdf_bold_font(), 16)
+    c.setFont("Helvetica-Bold", 16)
     c.drawString(2*cm, y, "Oldschool Esports Center Finans Raporu")
     y -= 0.8*cm
-    c.setFont(pdf_regular_font(), 11)
+    c.setFont("Helvetica", 11)
     c.drawString(2*cm, y, f"Yıl: {year}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 1.2*cm
 
-    c.setFont(pdf_bold_font(), 12)
+    c.setFont("Helvetica-Bold", 12)
     c.drawString(2*cm, y, "Yıllık Özet")
     y -= 0.6*cm
-    c.setFont(pdf_regular_font(), 11)
+    c.setFont("Helvetica", 11)
     for ln in [
         f"Nakit Gelir:  {tr_money(cash_sum)}",
         f"Kart Gelir:   {tr_money(card_sum)}",
@@ -564,10 +525,10 @@ def build_yearly_pdf(conn, year: int) -> bytes:
         y -= 0.5*cm
 
     y -= 0.3*cm
-    c.setFont(pdf_bold_font(), 12)
+    c.setFont("Helvetica-Bold", 12)
     c.drawString(2*cm, y, "Aylık Tablo")
     y -= 0.6*cm
-    c.setFont(pdf_regular_font(), 10)
+    c.setFont("Helvetica", 10)
     for _, r in df.iterrows():
         c.drawString(2*cm, y, str(r["ym"]))
         c.drawRightString(w-2*cm, y,
@@ -580,7 +541,7 @@ def build_yearly_pdf(conn, year: int) -> bytes:
     if charts:
         c.showPage()
         y = h - 2*cm
-        c.setFont(pdf_bold_font(), 12)
+        c.setFont("Helvetica-Bold", 12)
         c.drawString(2*cm, y, "Grafikler")
         y -= 0.8*cm
         for img in charts:
@@ -632,6 +593,37 @@ hr { border-color: rgba(31,41,55,0.08); }
 </style>"""
 
 st.set_page_config(page_title=APP_TITLE, layout="wide")
+
+# ---------- LOGIN SYSTEM ----------
+def check_login():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        return True
+
+    st.title("🔐 Giriş Yap")
+
+    username = st.text_input("Kullanıcı Adı")
+    password = st.text_input("Şifre", type="password")
+
+    if st.button("Giriş"):
+        if (
+            username == st.secrets.get("APP_USER")
+            and password == st.secrets.get("APP_PASSWORD")
+        ):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Hatalı kullanıcı adı veya şifre")
+
+    return False
+
+
+if not check_login():
+    st.stop()
+
+# ---------- END LOGIN ----------
 st.markdown(SOFT_CSS, unsafe_allow_html=True)
 st.title(APP_TITLE)
 
