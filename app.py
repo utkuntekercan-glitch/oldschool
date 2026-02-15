@@ -252,6 +252,53 @@ def get_active_categories(conn) -> list[str]:
     rows = conn.execute("SELECT name FROM categories WHERE active=1 ORDER BY name").fetchall()
     return [r[0] for r in rows]
 
+def set_undo_action(action: dict):
+    st.session_state["undo_action"] = action
+
+def apply_undo_action(conn) -> tuple[bool, str]:
+    action = st.session_state.get("undo_action")
+    if not action:
+        return False, "Geri alınacak işlem yok."
+
+    t = action.get("type")
+    try:
+        if t == "expense_add":
+            conn.execute("DELETE FROM expense WHERE id=?", (int(action["id"]),))
+            msg = "Eklenen gider geri alındı."
+        elif t == "expense_update":
+            old = action["old"]
+            conn.execute(
+                "UPDATE expense SET d=?, category=?, amount=?, pay_method=?, note=? WHERE id=? AND source='manual'",
+                (old["d"], old["category"], float(old["amount"]), old["pay_method"], old["note"], int(old["id"])),
+            )
+            msg = "Gider güncellemesi geri alındı."
+        elif t == "expense_delete":
+            row = action["row"]
+            conn.execute(
+                "INSERT INTO expense(id, d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?,?,?)",
+                (int(row["id"]), row["d"], row["category"], float(row["amount"]), row["pay_method"], row["note"], row.get("source", "manual")),
+            )
+            msg = "Silinen gider geri yüklendi."
+        elif t == "daily_cash_upsert":
+            d = action["d"]
+            prev = action.get("previous")
+            if prev is None:
+                conn.execute("DELETE FROM daily_cash WHERE d=?", (d,))
+            else:
+                conn.execute("""
+                    INSERT INTO daily_cash(d, cash, card, note)
+                    VALUES(?,?,?,?)
+                    ON CONFLICT(d) DO UPDATE SET cash=excluded.cash, card=excluded.card, note=excluded.note
+                """, (prev["d"], float(prev["cash"]), float(prev["card"]), prev["note"]))
+            msg = "Günlük kasa işlemi geri alındı."
+        else:
+            return False, "Bilinmeyen işlem tipi."
+        conn.commit()
+        st.session_state.pop("undo_action", None)
+        return True, msg
+    except Exception as e:
+        return False, f"Geri alma başarısız: {e}"
+
 
 def seed_defaults_if_empty(conn, start_month: str):
     """Program ilk açıldığında senin verdiğin sabitleri/kredileri/taksitleri otomatik ekler (sadece DB boşsa)."""
@@ -975,6 +1022,12 @@ if not check_login():
 # ---------- END LOGIN ----------
 st.markdown(SOFT_CSS, unsafe_allow_html=True)
 st.title(APP_TITLE)
+if "undo_flash" in st.session_state:
+    ok, msg = st.session_state.pop("undo_flash")
+    if ok:
+        st.success(msg)
+    else:
+        st.error(msg)
 
 conn = get_conn()
 init_db(conn)
@@ -1006,6 +1059,13 @@ with st.sidebar:
     page = st.radio("Sayfa", ["🏠 Dashboard", "💰 Günlük Kasa", "🧾 Gider Yönetimi", "🔁 Sabitler (Kurallar)", "🏦 Krediler", "💳 Kart Taksitleri", "📤 Veri Dökümü", "⚙️ Ayarlar"])
     st.divider()
     mobile_mode = st.toggle("Mobil görünüm", value=False, help="Dar ekranlarda daha rahat kullanım için düzeni sadeleştirir.")
+    undo_action = st.session_state.get("undo_action")
+    if undo_action:
+        st.caption(f"Son işlem: {undo_action.get('label', 'İşlem')}")
+        if st.button("↩️ Son işlemi geri al", use_container_width=True):
+            ok, msg = apply_undo_action(conn)
+            st.session_state["undo_flash"] = (ok, msg)
+            st.rerun()
 
 ensure_month_open(conn, selected_month)
 auto_generate_for_month(conn, selected_month)
@@ -1159,12 +1219,22 @@ elif page == "💰 Günlük Kasa":
     locked = is_month_locked(conn, selected_month)
 
     if st.button("Kaydet / Güncelle", type="primary", disabled=locked):
+        prev = conn.execute("SELECT d, cash, card, note FROM daily_cash WHERE d=?", (d.isoformat(),)).fetchone()
         conn.execute("""
             INSERT INTO daily_cash(d, cash, card, note)
             VALUES(?,?,?,?)
             ON CONFLICT(d) DO UPDATE SET cash=excluded.cash, card=excluded.card, note=excluded.note
         """, (d.isoformat(), float(cash), float(card), note.strip() or None))
         conn.commit()
+        prev_payload = None
+        if prev:
+            prev_payload = {"d": prev[0], "cash": float(prev[1]), "card": float(prev[2]), "note": prev[3]}
+        set_undo_action({
+            "type": "daily_cash_upsert",
+            "d": d.isoformat(),
+            "previous": prev_payload,
+            "label": f"Günlük Kasa ({d.isoformat()})",
+        })
         st.success("Kaydedildi ✅")
 
     st.divider()
@@ -1192,20 +1262,64 @@ elif page == "🧾 Gider Yönetimi":
     st.subheader("🧾 Gider Yönetimi")
     if is_month_locked(conn, selected_month):
         st.warning("Bu ay kilitli. Manuel gider ekleme/düzenleme kapalı.")
-    d = st.date_input("Tarih", value=today)
-    category = st.selectbox("Kategori", get_active_categories(conn))
-    amount = st.number_input("Tutar (₺)", min_value=0.0, step=100.0, format="%.2f")
-    pay_method = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"])
-    note = st.text_input("Not (opsiyonel)")
+    active_categories = get_active_categories(conn)
+    if len(active_categories) == 0:
+        st.error("Aktif kategori yok. Ayarlar bölümünden en az bir kategori aktif et.")
+        st.stop()
+
+    if "exp_form_date" not in st.session_state:
+        st.session_state.exp_form_date = today
+    if "exp_form_category" not in st.session_state or st.session_state.exp_form_category not in active_categories:
+        st.session_state.exp_form_category = active_categories[0]
+    if "exp_form_amount" not in st.session_state:
+        st.session_state.exp_form_amount = 0.0
+    if "exp_form_pay_method" not in st.session_state:
+        st.session_state.exp_form_pay_method = "Nakit"
+    if "exp_form_note" not in st.session_state:
+        st.session_state.exp_form_note = ""
+
+    templates = {
+        "Kira (Havale)": {"category": "Kira", "pay_method": "Havale", "note": "Aylık kira"},
+        "İnternet (Havale)": {"category": "İnternet", "pay_method": "Havale", "note": "İnternet faturası"},
+        "Elektrik (Havale)": {"category": "Elektrik", "pay_method": "Havale", "note": "Elektrik faturası"},
+        "Alışveriş (Kart)": {"category": "Alışveriş", "pay_method": "Kart", "note": "Market/temel ihtiyaç"},
+    }
+
+    t1, t2 = st.columns([2, 1])
+    with t1:
+        chosen_template = st.selectbox("Hızlı Şablon", ["Seçiniz"] + list(templates.keys()), key="exp_template_select")
+    with t2:
+        st.markdown("&nbsp;")
+        if st.button("Şablonu Uygula", use_container_width=True):
+            if chosen_template in templates:
+                tpl = templates[chosen_template]
+                tpl_cat = tpl["category"] if tpl["category"] in active_categories else active_categories[0]
+                st.session_state.exp_form_category = tpl_cat
+                st.session_state.exp_form_pay_method = tpl["pay_method"]
+                st.session_state.exp_form_note = tpl["note"]
+                st.rerun()
+
+    d = st.date_input("Tarih", key="exp_form_date")
+    category = st.selectbox("Kategori", active_categories, key="exp_form_category")
+    amount = st.number_input("Tutar (₺)", min_value=0.0, step=100.0, format="%.2f", key="exp_form_amount")
+    pay_method = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"], key="exp_form_pay_method")
+    note = st.text_input("Not (opsiyonel)", key="exp_form_note")
 
     locked = is_month_locked(conn, selected_month)
 
     if st.button("Gider Kaydet", type="primary", disabled=locked):
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO expense(d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?, 'manual')",
             (d.isoformat(), category, float(amount), pay_method, note.strip() or None),
         )
         conn.commit()
+        set_undo_action({
+            "type": "expense_add",
+            "id": int(cur.lastrowid),
+            "label": f"Gider Ekle ({d.isoformat()} | {category})",
+        })
+        st.session_state.exp_form_amount = 0.0
+        st.session_state.exp_form_note = ""
         st.success("Gider eklendi ✅")
         st.rerun()
 
@@ -1222,9 +1336,35 @@ elif page == "🧾 Gider Yönetimi":
 
     # Ekranda gösterilecek tablo (otomatik notları gizler, kategoriyi temizler, Türkçe kolonlar)
     exp_disp = format_expense_for_display(exp_raw)
+    st.markdown("#### Filtre ve Arama")
+    f1, f2, f3 = st.columns([1.4, 1, 1])
+    with f1:
+        q = st.text_input("Ara (kategori/not/tutar)", key="exp_filter_query")
+    with f2:
+        pay_options = sorted([p for p in exp_disp["Ödeme"].dropna().astype(str).unique().tolist()]) if "Ödeme" in exp_disp.columns else []
+        pay_sel = st.multiselect("Ödeme", pay_options, default=pay_options, key="exp_filter_pay")
+    with f3:
+        source_options = sorted([s for s in exp_disp["Kaynak"].dropna().astype(str).unique().tolist()]) if "Kaynak" in exp_disp.columns else []
+        source_sel = st.multiselect("Kaynak", source_options, default=source_options, key="exp_filter_source")
+
+    category_options = sorted([c for c in exp_disp["Kategori"].dropna().astype(str).unique().tolist()]) if "Kategori" in exp_disp.columns else []
+    cat_sel = st.multiselect("Kategori", category_options, default=category_options, key="exp_filter_category")
+
+    filtered = exp_disp.copy()
+    if len(category_options):
+        filtered = filtered[filtered["Kategori"].astype(str).isin(cat_sel)]
+    if len(pay_options):
+        filtered = filtered[filtered["Ödeme"].astype(str).isin(pay_sel)]
+    if len(source_options):
+        filtered = filtered[filtered["Kaynak"].astype(str).isin(source_sel)]
+    if q.strip():
+        row_text = filtered.fillna("").astype(str).agg(" | ".join, axis=1).str.lower()
+        filtered = filtered[row_text.str.contains(q.strip().lower(), regex=False)]
+    st.caption(f"Görüntülenen kayıt: {len(filtered)} / {len(exp_disp)}")
+
     if mobile_mode:
         render_mobile_cards(
-            exp_disp,
+            filtered,
             fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
             empty_text="Bu ay için gider kaydı yok.",
             amount_fields={"Tutar"},
@@ -1232,7 +1372,7 @@ elif page == "🧾 Gider Yönetimi":
             badge_fields={"Kategori", "Ödeme", "Kaynak"},
         )
     else:
-        st.dataframe(exp_disp, use_container_width=True, hide_index=True)
+        st.dataframe(filtered, use_container_width=True, hide_index=True)
 
     st.divider()
     st.markdown("### ✏️ Manuel Gider Düzenle / Sil")
@@ -1285,17 +1425,44 @@ elif page == "🧾 Gider Yönetimi":
                 delete = c2.form_submit_button("Sil", type="secondary")
 
         if save:
+            old_payload = {
+                "id": int(row["id"]),
+                "d": str(row["d"]),
+                "category": str(row["category"]),
+                "amount": float(row["amount"]),
+                "pay_method": str(row["pay_method"]),
+                "note": None if pd.isna(row["note"]) else str(row["note"]),
+            }
             conn.execute(
                 "UPDATE expense SET d=?, category=?, amount=?, pay_method=?, note=? WHERE id=? AND source='manual'",
                 (ed.isoformat(), ecat.strip(), float(eamount), epm, enote.strip() or None, int(sel_id)),
             )
             conn.commit()
+            set_undo_action({
+                "type": "expense_update",
+                "old": old_payload,
+                "label": f"Gider Güncelle (#{int(sel_id)})",
+            })
             st.success("Gider güncellendi ✅")
             st.rerun()
 
         if delete:
+            row_payload = {
+                "id": int(row["id"]),
+                "d": str(row["d"]),
+                "category": str(row["category"]),
+                "amount": float(row["amount"]),
+                "pay_method": str(row["pay_method"]),
+                "note": None if pd.isna(row["note"]) else str(row["note"]),
+                "source": str(row["source"]),
+            }
             conn.execute("DELETE FROM expense WHERE id=? AND source='manual'", (int(sel_id),))
             conn.commit()
+            set_undo_action({
+                "type": "expense_delete",
+                "row": row_payload,
+                "label": f"Gider Sil (#{int(sel_id)})",
+            })
             st.success("Gider silindi ✅")
             st.rerun()
 
