@@ -372,6 +372,47 @@ def format_expense_for_display(df_raw: pd.DataFrame) -> pd.DataFrame:
     cols = [c for c in ["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"] if c in df.columns]
     return df[cols]
 
+def render_mobile_cards(
+    df: pd.DataFrame,
+    fields: list[str],
+    empty_text: str,
+    amount_fields: set[str] | None = None,
+    title_fields: list[str] | None = None,
+):
+    if df is None or len(df) == 0:
+        st.info(empty_text)
+        return
+
+    amount_fields = amount_fields or set()
+    title_fields = title_fields or []
+
+    for _, row in df.iterrows():
+        title_parts = []
+        for t in title_fields:
+            if t in df.columns and pd.notna(row[t]) and str(row[t]).strip() != "":
+                title_parts.append(str(row[t]))
+
+        if title_parts:
+            st.markdown(f"**{' | '.join(title_parts)}**")
+
+        for field in fields:
+            if field not in df.columns or field in title_fields:
+                continue
+            val = row[field]
+            if pd.isna(val) or str(val).strip() == "":
+                continue
+
+            if field in amount_fields:
+                try:
+                    val_str = tr_money(float(val))
+                except Exception:
+                    val_str = str(val)
+            else:
+                val_str = str(val)
+
+            st.markdown(f"**{field}:** {val_str}")
+        st.divider()
+
 
 # ---------- PDF REPORTS ----------
 def repair_text(s) -> str:
@@ -837,7 +878,16 @@ if page == "🏠 Dashboard":
                 "card": "Kart",
                 "total": "Toplam"
             }, inplace=True)
-            st.dataframe(rev_display, use_container_width=True, hide_index=True)
+            if mobile_mode:
+                render_mobile_cards(
+                    rev_display,
+                    fields=["Tarih", "Toplam", "Nakit", "Kart"],
+                    empty_text="Bu ay için günlük kasa girişi yok.",
+                    amount_fields={"Toplam", "Nakit", "Kart"},
+                    title_fields=["Tarih"],
+                )
+            else:
+                st.dataframe(rev_display, use_container_width=True, hide_index=True)
         else:
             st.info("Bu ay için günlük kasa girişi yok.")
 
@@ -846,7 +896,16 @@ if page == "🏠 Dashboard":
         if len(exp):
             exp_disp = format_expense_for_display(exp)
             by_cat = exp_disp.groupby("Kategori", as_index=False)["Tutar"].sum().sort_values("Tutar", ascending=False)
-            st.dataframe(by_cat, use_container_width=True, hide_index=True)
+            if mobile_mode:
+                render_mobile_cards(
+                    by_cat,
+                    fields=["Kategori", "Tutar"],
+                    empty_text="Bu ay için gider kaydı yok.",
+                    amount_fields={"Tutar"},
+                    title_fields=["Kategori"],
+                )
+            else:
+                st.dataframe(by_cat, use_container_width=True, hide_index=True)
             chart_df = by_cat.set_index("Kategori")
             st.bar_chart(chart_df)
         else:
@@ -866,7 +925,16 @@ if page == "🏠 Dashboard":
     st.markdown("### Gider Listesi")
     if len(exp):
         show = format_expense_for_display(exp)
-        st.dataframe(show, use_container_width=True, hide_index=True)
+        if mobile_mode:
+            render_mobile_cards(
+                show,
+                fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
+                empty_text="Gider yok.",
+                amount_fields={"Tutar"},
+                title_fields=["Tarih", "Kategori"],
+            )
+        else:
+            st.dataframe(show, use_container_width=True, hide_index=True)
     else:
         st.info("Gider yok.")
 
@@ -900,7 +968,16 @@ elif page == "💰 Günlük Kasa":
         WHERE d >= ? AND d < ?
         ORDER BY d DESC
     """, (start.isoformat(), end.isoformat()))
-    st.dataframe(rev, use_container_width=True, hide_index=True)
+    if mobile_mode:
+        render_mobile_cards(
+            rev,
+            fields=["Tarih", "Toplam", "Nakit", "Kart", "Notlar"],
+            empty_text="Bu ay için günlük kasa kaydı yok.",
+            amount_fields={"Toplam", "Nakit", "Kart"},
+            title_fields=["Tarih"],
+        )
+    else:
+        st.dataframe(rev, use_container_width=True, hide_index=True)
 
 # --------- MANUAL EXPENSE ----------
 elif page == "🧾 Gider Yönetimi":
@@ -937,7 +1014,16 @@ elif page == "🧾 Gider Yönetimi":
 
     # Ekranda gösterilecek tablo (otomatik notları gizler, kategoriyi temizler, Türkçe kolonlar)
     exp_disp = format_expense_for_display(exp_raw)
-    st.dataframe(exp_disp, use_container_width=True, hide_index=True)
+    if mobile_mode:
+        render_mobile_cards(
+            exp_disp,
+            fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
+            empty_text="Bu ay için gider kaydı yok.",
+            amount_fields={"Tutar"},
+            title_fields=["Tarih", "Kategori"],
+        )
+    else:
+        st.dataframe(exp_disp, use_container_width=True, hide_index=True)
 
     st.divider()
     st.markdown("### ✏️ Manuel Gider Düzenle / Sil")
