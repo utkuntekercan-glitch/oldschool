@@ -379,6 +379,7 @@ def render_mobile_cards(
     empty_text: str,
     amount_fields: set[str] | None = None,
     title_fields: list[str] | None = None,
+    badge_fields: set[str] | None = None,
 ):
     if df is None or len(df) == 0:
         st.info(empty_text)
@@ -386,6 +387,7 @@ def render_mobile_cards(
 
     amount_fields = amount_fields or set()
     title_fields = title_fields or []
+    badge_fields = badge_fields or set()
 
     for _, row in df.iterrows():
         card_lines = []
@@ -409,8 +411,28 @@ def render_mobile_cards(
             else:
                 val_str = str(val)
 
+            value_html = escape(val_str)
+            if field in badge_fields:
+                badge_cls = "mobile-badge-default"
+                normalized = val_str.strip().lower()
+                if field == "Ödeme":
+                    if normalized == "nakit":
+                        badge_cls = "mobile-badge-cash"
+                    elif normalized == "kart":
+                        badge_cls = "mobile-badge-card"
+                    elif normalized == "havale":
+                        badge_cls = "mobile-badge-transfer"
+                elif field == "Kaynak":
+                    if normalized == "manual":
+                        badge_cls = "mobile-badge-manual"
+                    elif normalized == "auto":
+                        badge_cls = "mobile-badge-auto"
+                elif field == "Kategori":
+                    badge_cls = "mobile-badge-category"
+                value_html = f"<span class='mobile-badge {badge_cls}'>{escape(val_str)}</span>"
+
             card_lines.append(
-                f"<div class='mobile-card-row'><span class='mobile-card-label'>{escape(field)}</span><span class='mobile-card-value'>{escape(val_str)}</span></div>"
+                f"<div class='mobile-card-row'><span class='mobile-card-label'>{escape(field)}</span><span class='mobile-card-value'>{value_html}</span></div>"
             )
 
         title_html = ""
@@ -778,6 +800,22 @@ hr { border-color: rgba(31,41,55,0.08); }
   color: #1f2937;
   text-align: right;
 }
+.mobile-badge {
+  display: inline-block;
+  padding: 0.16rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  border: 1px solid transparent;
+}
+.mobile-badge-default { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+.mobile-badge-category { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.mobile-badge-cash { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+.mobile-badge-card { background: #eff6ff; color: #1e3a8a; border-color: #bfdbfe; }
+.mobile-badge-transfer { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.mobile-badge-manual { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
+.mobile-badge-auto { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
 
 /* Mobile optimizations */
 @media (max-width: 768px) {
@@ -812,6 +850,9 @@ hr { border-color: rgba(31,41,55,0.08); }
   }
   .mobile-card-value {
     font-size: 0.86rem;
+  }
+  .mobile-badge {
+    font-size: 0.72rem;
   }
 }
 </style>"""
@@ -1011,6 +1052,7 @@ if page == "🏠 Dashboard":
                 empty_text="Gider yok.",
                 amount_fields={"Tutar"},
                 title_fields=["Tarih", "Kategori"],
+                badge_fields={"Ödeme", "Kaynak"},
             )
         else:
             st.dataframe(show, use_container_width=True, hide_index=True)
@@ -1100,6 +1142,7 @@ elif page == "🧾 Gider Yönetimi":
             empty_text="Bu ay için gider kaydı yok.",
             amount_fields={"Tutar"},
             title_fields=["Tarih", "Kategori"],
+            badge_fields={"Ödeme", "Kaynak"},
         )
     else:
         st.dataframe(exp_disp, use_container_width=True, hide_index=True)
