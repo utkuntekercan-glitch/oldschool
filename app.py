@@ -415,25 +415,56 @@ def extract_amount_from_line(line: str) -> float | None:
 
 def extract_bank_visa_amounts(ocr_text: str) -> tuple[float | None, float | None]:
     lines = [ln.strip() for ln in str(ocr_text).splitlines() if ln.strip()]
-    bank_keywords = ("banka", "bank", "nakit", "cash")
-    visa_keywords = ("visa", "kart", "card", "kredi kart")
+    bank_primary_keywords = ("banka", "bank")
+    visa_primary_keywords = ("visa",)
+    bank_fallback_keywords = ("nakit", "cash")
+    visa_fallback_keywords = ("kredi kart", "kart", "card")
 
     bank_val = None
     visa_val = None
 
+    # Primary mapping requested:
+    # - "Banka" line -> Nakit
+    # - "Visa" line  -> Kredi Kartı
     for ln in lines:
         low = ln.lower()
-        if bank_val is None and any(k in low for k in bank_keywords):
+        if bank_val is None and any(k in low for k in bank_primary_keywords):
             bank_val = extract_amount_from_line(ln)
-        if visa_val is None and any(k in low for k in visa_keywords):
+        if visa_val is None and any(k in low for k in visa_primary_keywords):
             visa_val = extract_amount_from_line(ln)
 
+    # Fallbacks only if primary labels are not found.
     if bank_val is None:
-        m = re.search(r"(?:banka|bank|nakit|cash)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
+        for ln in lines:
+            low = ln.lower()
+            if any(k in low for k in bank_fallback_keywords):
+                bank_val = extract_amount_from_line(ln)
+                if bank_val is not None:
+                    break
+    if visa_val is None:
+        for ln in lines:
+            low = ln.lower()
+            if any(k in low for k in visa_fallback_keywords):
+                visa_val = extract_amount_from_line(ln)
+                if visa_val is not None:
+                    break
+
+    if bank_val is None:
+        m = re.search(r"(?:banka|bank)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
         if m:
             bank_val = parse_amount_token(m.group(1))
     if visa_val is None:
-        m = re.search(r"(?:visa|kart|card|kredi kart)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
+        m = re.search(r"(?:visa)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
+        if m:
+            visa_val = parse_amount_token(m.group(1))
+
+    # Last fallback patterns if OCR heavily corrupts labels.
+    if bank_val is None:
+        m = re.search(r"(?:nakit|cash)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
+        if m:
+            bank_val = parse_amount_token(m.group(1))
+    if visa_val is None:
+        m = re.search(r"(?:kredi kart|kart|card)[^0-9]{0,20}([-+]?\d[\d.,]*)", "\n".join(lines), flags=re.I)
         if m:
             visa_val = parse_amount_token(m.group(1))
 
