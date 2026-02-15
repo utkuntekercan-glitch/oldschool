@@ -1373,7 +1373,8 @@ elif page == "💰 Günlük Kasa":
                         st.session_state.daily_cash_ocr_status = "Banka/Visa tutarı okunamadı. Görseli kırpıp tekrar dene."
                 except Exception as e:
                     st.session_state.daily_cash_ocr_status = (
-                        f"OCR çalıştırılamadı: {e}. Deploy ortamında 'easyocr' veya 'rapidocr-onnxruntime' kurulu olmalı."
+                        f"OCR çalıştırılamadı: {e}. Deploy ortamında requirements yanında packages.txt ile "
+                        f"'libgl1' ve bağlı paketler kurulmalı."
                     )
     if st.session_state.daily_cash_ocr_status:
         if st.session_state.daily_cash_ocr_status.startswith("OCR tamamlandı"):
