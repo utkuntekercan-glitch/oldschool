@@ -705,14 +705,24 @@ div[data-testid="stMetric"] label { color: rgba(17,24,39,0.70) !important; }
   background: rgba(17,24,39,0.03);
   border-color: rgba(31,41,55,0.18);
 }
-.stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"] {
+.stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"], button[data-testid="stBaseButton-primary"] {
   background: #c0392b;
   border-color: #a93226;
-  color: #ffffff;
+  color: #ffffff !important;
 }
-.stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover {
+.stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {
   background: #a93226;
   border-color: #922b21;
+}
+.stButton>button[kind="primary"], .stFormSubmitButton>button[kind="primary"], button[data-testid="stBaseButton-primary"] {
+  background: #c0392b !important;
+  border-color: #a93226 !important;
+}
+.stButton>button[kind="primary"]:disabled, .stFormSubmitButton>button[kind="primary"]:disabled, button[data-testid="stBaseButton-primary"]:disabled {
+  background: #d98880 !important;
+  border-color: #d98880 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
 }
 div[data-testid="stDataFrame"] {
   background: #ffffff;
