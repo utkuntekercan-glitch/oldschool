@@ -389,6 +389,22 @@ def render_mobile_cards(
     title_fields = title_fields or []
     badge_fields = badge_fields or set()
 
+    def category_badge_class(category_text: str) -> str:
+        c = category_text.strip().lower()
+        if "kira" in c:
+            return "mobile-badge-rent"
+        if "maaş" in c or "maas" in c:
+            return "mobile-badge-salary"
+        if "kredi" in c:
+            return "mobile-badge-loan"
+        if "taksit" in c:
+            return "mobile-badge-installment"
+        if "elektrik" in c or "su" in c or "gaz" in c or "internet" in c:
+            return "mobile-badge-bills"
+        if "alışveriş" in c or "alisveris" in c:
+            return "mobile-badge-shopping"
+        return "mobile-badge-category"
+
     for _, row in df.iterrows():
         card_lines = []
         title_parts = []
@@ -428,7 +444,7 @@ def render_mobile_cards(
                     elif normalized == "auto":
                         badge_cls = "mobile-badge-auto"
                 elif field == "Kategori":
-                    badge_cls = "mobile-badge-category"
+                    badge_cls = category_badge_class(val_str)
                 value_html = f"<span class='mobile-badge {badge_cls}'>{escape(val_str)}</span>"
 
             card_lines.append(
@@ -444,6 +460,31 @@ def render_mobile_cards(
             f"<div class='mobile-card'>{title_html}<div class='mobile-card-body'>{body_html}</div></div>",
             unsafe_allow_html=True,
         )
+
+def render_mobile_category_progress(by_cat: pd.DataFrame, top_n: int = 5):
+    if by_cat is None or len(by_cat) == 0 or "Kategori" not in by_cat.columns or "Tutar" not in by_cat.columns:
+        return
+    top = by_cat.head(top_n).copy()
+    max_val = float(top["Tutar"].max()) if len(top) else 0.0
+    if max_val <= 0:
+        return
+
+    rows = []
+    for _, r in top.iterrows():
+        cat = escape(str(r["Kategori"]))
+        val = float(r["Tutar"])
+        pct = max(4.0, min(100.0, (val / max_val) * 100.0))
+        rows.append(
+            f"<div class='mobile-progress-item'>"
+            f"<div class='mobile-progress-head'><span>{cat}</span><span>{escape(tr_money(val))}</span></div>"
+            f"<div class='mobile-progress-track'><div class='mobile-progress-fill' style='width:{pct:.1f}%'></div></div>"
+            f"</div>"
+        )
+    st.markdown(
+        "<div class='mobile-progress-wrap'><div class='mobile-progress-title'>Top 5 Kategori</div>"
+        + "".join(rows) + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 # ---------- PDF REPORTS ----------
@@ -816,6 +857,48 @@ hr { border-color: rgba(31,41,55,0.08); }
 .mobile-badge-transfer { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
 .mobile-badge-manual { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
 .mobile-badge-auto { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+.mobile-badge-rent { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.mobile-badge-salary { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+.mobile-badge-loan { background: #eff6ff; color: #1e3a8a; border-color: #bfdbfe; }
+.mobile-badge-installment { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.mobile-badge-bills { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
+.mobile-badge-shopping { background: #fdf2f8; color: #9d174d; border-color: #fbcfe8; }
+.mobile-progress-wrap {
+  margin-top: 0.6rem;
+  margin-bottom: 0.5rem;
+  background: #ffffff;
+  border: 1px solid rgba(31,41,55,0.10);
+  border-radius: 12px;
+  padding: 0.65rem 0.7rem;
+}
+.mobile-progress-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 0.45rem;
+}
+.mobile-progress-item { margin-bottom: 0.45rem; }
+.mobile-progress-item:last-child { margin-bottom: 0; }
+.mobile-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: #374151;
+  margin-bottom: 0.16rem;
+}
+.mobile-progress-track {
+  width: 100%;
+  height: 7px;
+  background: #eef2f7;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.mobile-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #c0392b 0%, #e67e22 100%);
+}
 
 /* Mobile optimizations */
 @media (max-width: 768px) {
@@ -853,6 +936,9 @@ hr { border-color: rgba(31,41,55,0.08); }
   }
   .mobile-badge {
     font-size: 0.72rem;
+  }
+  .mobile-progress-head {
+    font-size: 0.75rem;
   }
 }
 </style>"""
@@ -1024,6 +1110,7 @@ if page == "🏠 Dashboard":
                     amount_fields={"Tutar"},
                     title_fields=["Kategori"],
                 )
+                render_mobile_category_progress(by_cat, top_n=5)
             else:
                 st.dataframe(by_cat, use_container_width=True, hide_index=True)
             chart_df = by_cat.set_index("Kategori")
@@ -1051,8 +1138,8 @@ if page == "🏠 Dashboard":
                 fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
                 empty_text="Gider yok.",
                 amount_fields={"Tutar"},
-                title_fields=["Tarih", "Kategori"],
-                badge_fields={"Ödeme", "Kaynak"},
+                title_fields=["Tarih"],
+                badge_fields={"Kategori", "Ödeme", "Kaynak"},
             )
         else:
             st.dataframe(show, use_container_width=True, hide_index=True)
@@ -1141,8 +1228,8 @@ elif page == "🧾 Gider Yönetimi":
             fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
             empty_text="Bu ay için gider kaydı yok.",
             amount_fields={"Tutar"},
-            title_fields=["Tarih", "Kategori"],
-            badge_fields={"Ödeme", "Kaynak"},
+            title_fields=["Tarih"],
+            badge_fields={"Kategori", "Ödeme", "Kaynak"},
         )
     else:
         st.dataframe(exp_disp, use_container_width=True, hide_index=True)
