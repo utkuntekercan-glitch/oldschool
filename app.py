@@ -30,6 +30,7 @@ import io
 import os
 import shutil
 import importlib.util
+import json
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -487,19 +488,64 @@ def get_ocr_reader():
 
     raise RuntimeError("OCR motoru yüklenemedi. " + " | ".join(errors))
 
+def _google_vision_config() -> tuple[str, str]:
+    api_key = str(st.secrets.get("GOOGLE_VISION_API_KEY", "")).strip()
+    svc_json = str(st.secrets.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")).strip()
+    if (not svc_json) and ("gcp_service_account" in st.secrets):
+        try:
+            svc_json = json.dumps(dict(st.secrets["gcp_service_account"]))
+        except Exception:
+            svc_json = ""
+    return api_key, svc_json
+
+@st.cache_resource(show_spinner=False)
+def get_google_vision_client(api_key: str, svc_json: str):
+    from google.cloud import vision
+    if svc_json:
+        from google.oauth2 import service_account
+        info = json.loads(svc_json)
+        creds = service_account.Credentials.from_service_account_info(info)
+        return vision.ImageAnnotatorClient(credentials=creds)
+    if api_key:
+        return vision.ImageAnnotatorClient(client_options={"api_key": api_key})
+    raise RuntimeError("Google Vision secrets tanımlı değil.")
+
 def is_ocr_available() -> tuple[bool, str]:
+    has_google_lib = importlib.util.find_spec("google.cloud.vision") is not None
+    gv_api_key, gv_svc_json = _google_vision_config()
+    has_google_cfg = bool(gv_api_key or gv_svc_json)
     has_easyocr = importlib.util.find_spec("easyocr") is not None
     has_rapidocr = importlib.util.find_spec("rapidocr_onnxruntime") is not None
-    if has_easyocr or has_rapidocr:
+    if (has_google_lib and has_google_cfg) or has_easyocr or has_rapidocr:
         engines = []
+        if has_google_lib and has_google_cfg:
+            engines.append("google-vision")
         if has_easyocr:
             engines.append("easyocr")
         if has_rapidocr:
             engines.append("rapidocr-onnxruntime")
         return True, f"Kullanılabilir OCR motoru: {', '.join(engines)}"
-    return False, "OCR devre dışı: OCR paketleri kurulu değil."
+    if has_google_cfg and not has_google_lib:
+        return False, "OCR devre dışı: Google Vision secrets var ama 'google-cloud-vision' paketi kurulu değil."
+    return False, "OCR devre dışı: OCR paketleri/secrets eksik."
 
 def read_ocr_text(uploaded_file) -> str:
+    gv_api_key, gv_svc_json = _google_vision_config()
+    if importlib.util.find_spec("google.cloud.vision") is not None and (gv_api_key or gv_svc_json):
+        from google.cloud import vision
+        client = get_google_vision_client(gv_api_key, gv_svc_json)
+        image_bytes = uploaded_file.getvalue()
+        response = client.document_text_detection(image=vision.Image(content=image_bytes))
+        if response.error.message:
+            raise RuntimeError(f"Google Vision hatası: {response.error.message}")
+        full_text = ""
+        if response.full_text_annotation and response.full_text_annotation.text:
+            full_text = response.full_text_annotation.text
+        elif response.text_annotations:
+            full_text = response.text_annotations[0].description
+        if full_text.strip():
+            return full_text
+
     img = Image.open(uploaded_file)
     img = ImageOps.exif_transpose(img).convert("RGB")
     arr = np.array(img)
@@ -1399,7 +1445,7 @@ elif page == "💰 Günlük Kasa":
         ocr_ok, ocr_msg = is_ocr_available()
         if not ocr_ok:
             st.info(ocr_msg)
-            st.caption("OCR kullanmak için requirements içine easyocr veya rapidocr-onnxruntime ekleyip yeniden deploy et.")
+            st.caption("OCR için Google Vision secrets (önerilen) veya easyocr/rapidocr kurup yeniden deploy et.")
         else:
             st.caption(ocr_msg)
         upload = st.file_uploader("Rapor görseli yükle", type=["jpg", "jpeg", "png", "webp"], key="daily_cash_ocr_upload")
