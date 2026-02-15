@@ -440,16 +440,38 @@ def extract_bank_visa_amounts(ocr_text: str) -> tuple[float | None, float | None
 
 @st.cache_resource(show_spinner=False)
 def get_ocr_reader():
-    import easyocr
-    return easyocr.Reader(["tr", "en"], gpu=False)
+    errors = []
+    try:
+        import easyocr
+        return ("easyocr", easyocr.Reader(["tr", "en"], gpu=False))
+    except Exception as e:
+        errors.append(f"easyocr: {e}")
+
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        return ("rapidocr", RapidOCR())
+    except Exception as e:
+        errors.append(f"rapidocr: {e}")
+
+    raise RuntimeError("OCR motoru yüklenemedi. " + " | ".join(errors))
 
 def read_ocr_text(uploaded_file) -> str:
     img = Image.open(uploaded_file)
     img = ImageOps.exif_transpose(img).convert("RGB")
     arr = np.array(img)
-    reader = get_ocr_reader()
-    result = reader.readtext(arr, detail=0, paragraph=False)
-    return "\n".join([str(x) for x in result if str(x).strip()])
+    engine_name, engine = get_ocr_reader()
+
+    if engine_name == "easyocr":
+        result = engine.readtext(arr, detail=0, paragraph=False)
+        return "\n".join([str(x) for x in result if str(x).strip()])
+
+    # rapidocr fallback
+    result, _ = engine(arr)
+    texts = []
+    for item in result or []:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            texts.append(str(item[1]))
+    return "\n".join([x for x in texts if x.strip()])
 
 # ---------- DISPLAY HELPERS ----------
 def clean_category_series(s: pd.Series) -> pd.Series:
@@ -1324,6 +1346,10 @@ elif page == "💰 Günlük Kasa":
         st.session_state.cash_form_card = 0.0
     if "cash_form_note" not in st.session_state:
         st.session_state.cash_form_note = ""
+    if "daily_cash_ocr_text_cache" not in st.session_state:
+        st.session_state.daily_cash_ocr_text_cache = ""
+    if "daily_cash_ocr_status" not in st.session_state:
+        st.session_state.daily_cash_ocr_status = ""
 
     with st.expander("📷 Fotoğraftan Otomatik Oku (Banka / Visa)"):
         upload = st.file_uploader("Rapor görseli yükle", type=["jpg", "jpeg", "png", "webp"], key="daily_cash_ocr_upload")
@@ -1332,6 +1358,7 @@ elif page == "💰 Günlük Kasa":
             if st.button("OCR ile Tutarları Oku", key="daily_cash_ocr_btn", use_container_width=True):
                 try:
                     ocr_text = read_ocr_text(upload)
+                    st.session_state.daily_cash_ocr_text_cache = ocr_text
                     bank_val, visa_val = extract_bank_visa_amounts(ocr_text)
 
                     if bank_val is not None:
@@ -1341,14 +1368,27 @@ elif page == "💰 Günlük Kasa":
                     if bank_val is not None or visa_val is not None:
                         auto_note = f"OCR Banka: {tr_money(bank_val) if bank_val is not None else '-'} | OCR Visa: {tr_money(visa_val) if visa_val is not None else '-'}"
                         st.session_state.cash_form_note = auto_note
-                        st.success("OCR tamamlandı. Değerler forma yazıldı, kontrol edip kaydet.")
+                        st.session_state.daily_cash_ocr_status = "OCR tamamlandı. Değerler forma yazıldı, kontrol edip kaydet."
                     else:
-                        st.warning("Banka/Visa tutarı okunamadı. Görseli kırpıp tekrar dene.")
-
-                    st.text_area("OCR metni (kontrol amaçlı)", value=ocr_text, height=120, key="daily_cash_ocr_text")
-                    st.rerun()
+                        st.session_state.daily_cash_ocr_status = "Banka/Visa tutarı okunamadı. Görseli kırpıp tekrar dene."
                 except Exception as e:
-                    st.error(f"OCR çalıştırılamadı: {e}. Gerekirse requirements'e easyocr ekleyip yeniden deploy et.")
+                    st.session_state.daily_cash_ocr_status = (
+                        f"OCR çalıştırılamadı: {e}. Deploy ortamında 'easyocr' veya 'rapidocr-onnxruntime' kurulu olmalı."
+                    )
+    if st.session_state.daily_cash_ocr_status:
+        if st.session_state.daily_cash_ocr_status.startswith("OCR tamamlandı"):
+            st.success(st.session_state.daily_cash_ocr_status)
+        elif st.session_state.daily_cash_ocr_status.startswith("Banka/Visa"):
+            st.warning(st.session_state.daily_cash_ocr_status)
+        else:
+            st.error(st.session_state.daily_cash_ocr_status)
+    if st.session_state.daily_cash_ocr_text_cache:
+        st.text_area(
+            "OCR metni (kontrol amaçlı)",
+            value=st.session_state.daily_cash_ocr_text_cache,
+            height=120,
+            key="daily_cash_ocr_text",
+        )
 
     d = st.date_input("Tarih", key="cash_form_date")
     cash = st.number_input("Nakit (₺)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_cash")
