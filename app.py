@@ -33,14 +33,12 @@ import importlib.util
 import json
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import numpy as np
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from PIL import Image, ImageOps
 
 APP_TITLE = "Oldschool Esports Center • Finans Paneli (FINAL v4)"
 DB_PATH = Path("oldschool_finance.db")
@@ -471,23 +469,6 @@ def extract_bank_visa_amounts(ocr_text: str) -> tuple[float | None, float | None
 
     return bank_val, visa_val
 
-@st.cache_resource(show_spinner=False)
-def get_ocr_reader():
-    errors = []
-    try:
-        import easyocr
-        return ("easyocr", easyocr.Reader(["tr", "en"], gpu=False))
-    except Exception as e:
-        errors.append(f"easyocr: {e}")
-
-    try:
-        from rapidocr_onnxruntime import RapidOCR
-        return ("rapidocr", RapidOCR())
-    except Exception as e:
-        errors.append(f"rapidocr: {e}")
-
-    raise RuntimeError("OCR motoru yüklenemedi. " + " | ".join(errors))
-
 def _google_vision_config() -> tuple[str, str]:
     api_key = str(st.secrets.get("GOOGLE_VISION_API_KEY", "")).strip()
     svc_json = str(st.secrets.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")).strip()
@@ -514,20 +495,11 @@ def is_ocr_available() -> tuple[bool, str]:
     has_google_lib = importlib.util.find_spec("google.cloud.vision") is not None
     gv_api_key, gv_svc_json = _google_vision_config()
     has_google_cfg = bool(gv_api_key or gv_svc_json)
-    has_easyocr = importlib.util.find_spec("easyocr") is not None
-    has_rapidocr = importlib.util.find_spec("rapidocr_onnxruntime") is not None
-    if (has_google_lib and has_google_cfg) or has_easyocr or has_rapidocr:
-        engines = []
-        if has_google_lib and has_google_cfg:
-            engines.append("google-vision")
-        if has_easyocr:
-            engines.append("easyocr")
-        if has_rapidocr:
-            engines.append("rapidocr-onnxruntime")
-        return True, f"Kullanılabilir OCR motoru: {', '.join(engines)}"
+    if has_google_lib and has_google_cfg:
+        return True, "Kullanılabilir OCR motoru: google-vision"
     if has_google_cfg and not has_google_lib:
         return False, "OCR devre dışı: Google Vision secrets var ama 'google-cloud-vision' paketi kurulu değil."
-    return False, "OCR devre dışı: OCR paketleri/secrets eksik."
+    return False, "OCR devre dışı: Google Vision secrets eksik."
 
 def read_ocr_text(uploaded_file) -> str:
     gv_api_key, gv_svc_json = _google_vision_config()
@@ -545,23 +517,7 @@ def read_ocr_text(uploaded_file) -> str:
             full_text = response.text_annotations[0].description
         if full_text.strip():
             return full_text
-
-    img = Image.open(uploaded_file)
-    img = ImageOps.exif_transpose(img).convert("RGB")
-    arr = np.array(img)
-    engine_name, engine = get_ocr_reader()
-
-    if engine_name == "easyocr":
-        result = engine.readtext(arr, detail=0, paragraph=False)
-        return "\n".join([str(x) for x in result if str(x).strip()])
-
-    # rapidocr fallback
-    result, _ = engine(arr)
-    texts = []
-    for item in result or []:
-        if isinstance(item, (list, tuple)) and len(item) >= 2:
-            texts.append(str(item[1]))
-    return "\n".join([x for x in texts if x.strip()])
+    raise RuntimeError("Google Vision kullanılamıyor. Secrets ayarını kontrol et.")
 
 # ---------- DISPLAY HELPERS ----------
 def clean_category_series(s: pd.Series) -> pd.Series:
@@ -1445,7 +1401,7 @@ elif page == "💰 Günlük Kasa":
         ocr_ok, ocr_msg = is_ocr_available()
         if not ocr_ok:
             st.info(ocr_msg)
-            st.caption("OCR için Google Vision secrets (önerilen) veya easyocr/rapidocr kurup yeniden deploy et.")
+            st.caption("OCR için Streamlit Secrets'e Google Vision bilgilerini ekle ve yeniden deploy et.")
         else:
             st.caption(ocr_msg)
         upload = st.file_uploader("Rapor görseli yükle", type=["jpg", "jpeg", "png", "webp"], key="daily_cash_ocr_upload")
@@ -1469,8 +1425,7 @@ elif page == "💰 Günlük Kasa":
                         st.session_state.daily_cash_ocr_status = "Banka/Visa tutarı okunamadı. Görseli kırpıp tekrar dene."
                 except Exception as e:
                     st.session_state.daily_cash_ocr_status = (
-                        f"OCR çalıştırılamadı: {e}. Deploy ortamında requirements yanında packages.txt ile "
-                        f"'libgl1' ve bağlı paketler kurulmalı."
+                        f"OCR çalıştırılamadı: {e}. Google Vision secrets/izinlerini kontrol et."
                     )
     if st.session_state.daily_cash_ocr_status:
         if st.session_state.daily_cash_ocr_status.startswith("OCR tamamlandı"):

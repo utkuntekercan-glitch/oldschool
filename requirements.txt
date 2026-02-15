@@ -3,7 +3,5 @@ pandas==2.3.3
 matplotlib==3.10.8
 reportlab==4.4.10
 Pillow==11.1.0
-easyocr==1.7.2
-rapidocr-onnxruntime==1.4.4
 google-cloud-vision
 
