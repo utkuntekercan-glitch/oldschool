@@ -22,6 +22,7 @@ import sqlite3
 from pathlib import Path
 from datetime import date, datetime
 import re
+import unicodedata
 import pandas as pd
 
 import io
@@ -373,6 +374,24 @@ def format_expense_for_display(df_raw: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------- PDF REPORTS ----------
+def repair_text(s) -> str:
+    if s is None:
+        return ""
+    text = str(s)
+    if any(token in text for token in ("Ã", "Ä", "Å", "â", "ğŸ", "ï")):
+        try:
+            text = text.encode("latin1").decode("utf-8")
+        except Exception:
+            pass
+    return unicodedata.normalize("NFC", text)
+
+def pdf_draw(c, x, y, text, right: bool = False):
+    clean = repair_text(text)
+    if right:
+        c.drawRightString(x, y, clean)
+    else:
+        c.drawString(x, y, clean)
+
 def get_pdf_fonts() -> tuple[str, str]:
     mpl_font_dir = Path(mpl.get_data_path()) / "fonts" / "ttf"
     candidates = [
@@ -430,6 +449,8 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
     exp_disp = format_expense_for_display(exp) if len(exp) else pd.DataFrame(columns=["Tarih","Kategori","Tutar","Ödeme","Kaynak","Notlar"])
     by_cat = (exp_disp.groupby("Kategori", as_index=False)["Tutar"].sum()
               .sort_values("Tutar", ascending=False)) if len(exp_disp) else pd.DataFrame(columns=["Kategori","Tutar"])
+    if len(by_cat):
+        by_cat["Kategori"] = by_cat["Kategori"].apply(repair_text)
 
     charts = []
     if len(rev):
@@ -455,14 +476,14 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
 
     y = h - 2*cm
     c.setFont(pdf_bold, 16)
-    c.drawString(2*cm, y, "Oldschool Esports Center Finans Raporu")
+    pdf_draw(c, 2*cm, y, "Oldschool Esports Center Finans Raporu")
     y -= 0.8*cm
     c.setFont(pdf_regular, 11)
-    c.drawString(2*cm, y, f"Ay: {ym_str}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    pdf_draw(c, 2*cm, y, f"Ay: {ym_str}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 1.2*cm
 
     c.setFont(pdf_bold, 12)
-    c.drawString(2*cm, y, "Özet")
+    pdf_draw(c, 2*cm, y, "Özet")
     y -= 0.6*cm
     c.setFont(pdf_regular, 11)
     for ln in [
@@ -472,18 +493,18 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
         f"Toplam Gider: {tr_money(total_exp)}",
         f"Net:          {tr_money(net)}",
     ]:
-        c.drawString(2*cm, y, ln)
+        pdf_draw(c, 2*cm, y, ln)
         y -= 0.5*cm
 
     y -= 0.3*cm
     c.setFont(pdf_bold, 12)
-    c.drawString(2*cm, y, "Gider Kırılımı (Kategori)")
+    pdf_draw(c, 2*cm, y, "Gider Kırılımı (Kategori)")
     y -= 0.6*cm
     c.setFont(pdf_regular, 10)
     top = by_cat.head(12) if len(by_cat) else by_cat
     for _, r in top.iterrows():
-        c.drawString(2*cm, y, str(r["Kategori"])[:38])
-        c.drawRightString(w-2*cm, y, f"{tr_money(float(r['Tutar']))[1:]}")
+        pdf_draw(c, 2*cm, y, str(r["Kategori"])[:38])
+        pdf_draw(c, w-2*cm, y, f"{tr_money(float(r['Tutar']))[1:]}", right=True)
         y -= 0.45*cm
         if y < 5*cm:
             c.showPage()
@@ -493,7 +514,7 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
         c.showPage()
         y = h - 2*cm
         c.setFont(pdf_bold, 12)
-        c.drawString(2*cm, y, "Grafikler")
+        pdf_draw(c, 2*cm, y, "Grafikler")
         y -= 0.8*cm
         for img in charts:
             c.drawImage(img, 2*cm, y-10*cm, width=w-4*cm, height=9.5*cm, preserveAspectRatio=True, anchor='n')
@@ -563,14 +584,14 @@ def build_yearly_pdf(conn, year: int) -> bytes:
 
     y = h - 2*cm
     c.setFont(pdf_bold, 16)
-    c.drawString(2*cm, y, "Oldschool Esports Center Finans Raporu")
+    pdf_draw(c, 2*cm, y, "Oldschool Esports Center Finans Raporu")
     y -= 0.8*cm
     c.setFont(pdf_regular, 11)
-    c.drawString(2*cm, y, f"Yıl: {year}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    pdf_draw(c, 2*cm, y, f"Yıl: {year}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 1.2*cm
 
     c.setFont(pdf_bold, 12)
-    c.drawString(2*cm, y, "Yıllık Özet")
+    pdf_draw(c, 2*cm, y, "Yıllık Özet")
     y -= 0.6*cm
     c.setFont(pdf_regular, 11)
     for ln in [
@@ -580,18 +601,19 @@ def build_yearly_pdf(conn, year: int) -> bytes:
         f"Toplam Gider: {tr_money(total_exp)}",
         f"Net:          {tr_money(net)}",
     ]:
-        c.drawString(2*cm, y, ln)
+        pdf_draw(c, 2*cm, y, ln)
         y -= 0.5*cm
 
     y -= 0.3*cm
     c.setFont(pdf_bold, 12)
-    c.drawString(2*cm, y, "Aylık Tablo")
+    pdf_draw(c, 2*cm, y, "Aylık Tablo")
     y -= 0.6*cm
     c.setFont(pdf_regular, 10)
     for _, r in df.iterrows():
-        c.drawString(2*cm, y, str(r["ym"]))
-        c.drawRightString(w-2*cm, y,
-                          f"Gelir {tr_money(float(r['total']))[1:]}  |  Gider {tr_money(float(r['expense']))[1:]}  |  Net {tr_money(float(r['net']))[1:]}")
+        pdf_draw(c, 2*cm, y, str(r["ym"]))
+        pdf_draw(c, w-2*cm, y,
+                 f"Gelir {tr_money(float(r['total']))[1:]}  |  Gider {tr_money(float(r['expense']))[1:]}  |  Net {tr_money(float(r['net']))[1:]}",
+                 right=True)
         y -= 0.45*cm
         if y < 5*cm:
             c.showPage()
@@ -601,7 +623,7 @@ def build_yearly_pdf(conn, year: int) -> bytes:
         c.showPage()
         y = h - 2*cm
         c.setFont(pdf_bold, 12)
-        c.drawString(2*cm, y, "Grafikler")
+        pdf_draw(c, 2*cm, y, "Grafikler")
         y -= 0.8*cm
         for img in charts:
             c.drawImage(img, 2*cm, y-10*cm, width=w-4*cm, height=9.5*cm, preserveAspectRatio=True, anchor='n')
