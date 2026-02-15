@@ -21,19 +21,26 @@ st.markdown("""
 import sqlite3
 from pathlib import Path
 from datetime import date, datetime
+import re
 import pandas as pd
 
 import io
 import os
 import shutil
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 APP_TITLE = "Oldschool Esports Center • Finans Paneli (FINAL v4)"
 DB_PATH = Path("oldschool_finance.db")
+
+# Keep chart labels readable for Turkish text in generated PDF images.
+plt.rcParams["font.family"] = "DejaVu Sans"
 
 def ensure_backup():
     """Her açılışta veritabanını backups/ klasörüne kopyalar."""
@@ -137,6 +144,15 @@ def ym(d: date) -> str:
 def parse_ym(s: str):
     y, m = s.split("-")
     return int(y), int(m)
+
+def is_valid_ym(s: str) -> bool:
+    if not re.fullmatch(r"\d{4}-\d{2}", str(s).strip()):
+        return False
+    try:
+        _, m = parse_ym(str(s).strip())
+        return 1 <= m <= 12
+    except Exception:
+        return False
 
 def month_range(ym_str: str):
     y, m = parse_ym(ym_str)
@@ -357,6 +373,28 @@ def format_expense_for_display(df_raw: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------- PDF REPORTS ----------
+def get_pdf_fonts() -> tuple[str, str]:
+    mpl_font_dir = Path(mpl.get_data_path()) / "fonts" / "ttf"
+    candidates = [
+        # Matplotlib bundled fonts (cross-platform, Unicode)
+        (mpl_font_dir / "DejaVuSans.ttf", mpl_font_dir / "DejaVuSans-Bold.ttf", "PDFDejaVuSans", "PDFDejaVuSansBold"),
+        # Windows
+        (Path(r"C:\Windows\Fonts\arial.ttf"), Path(r"C:\Windows\Fonts\arialbd.ttf"), "PDFArial", "PDFArialBold"),
+        (Path(r"C:\Windows\Fonts\DejaVuSans.ttf"), Path(r"C:\Windows\Fonts\DejaVuSans-Bold.ttf"), "PDFDejaVuSans", "PDFDejaVuSansBold"),
+        # Linux
+        (Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"), Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"), "PDFDejaVuSans", "PDFDejaVuSansBold"),
+    ]
+    for regular_path, bold_path, regular_name, bold_name in candidates:
+        if regular_path.exists():
+            if not bold_path.exists():
+                bold_path = regular_path
+            if regular_name not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont(regular_name, str(regular_path)))
+            if bold_name not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont(bold_name, str(bold_path)))
+            return regular_name, bold_name
+    raise RuntimeError("Unicode PDF font bulunamadı. DejaVu Sans veya Arial TTF erişilebilir olmalı.")
+
 def _fig_to_imagereader(fig) -> ImageReader:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
@@ -365,6 +403,7 @@ def _fig_to_imagereader(fig) -> ImageReader:
     return ImageReader(buf)
 
 def build_monthly_pdf(conn, ym_str: str) -> bytes:
+    pdf_regular, pdf_bold = get_pdf_fonts()
     start, end = month_range(ym_str)
     start_s, end_s = start.isoformat(), end.isoformat()
 
@@ -415,17 +454,17 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
     w, h = A4
 
     y = h - 2*cm
-    c.setFont("Helvetica-Bold", 16)
+    c.setFont(pdf_bold, 16)
     c.drawString(2*cm, y, "Oldschool Esports Center Finans Raporu")
     y -= 0.8*cm
-    c.setFont("Helvetica", 11)
+    c.setFont(pdf_regular, 11)
     c.drawString(2*cm, y, f"Ay: {ym_str}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 1.2*cm
 
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont(pdf_bold, 12)
     c.drawString(2*cm, y, "Özet")
     y -= 0.6*cm
-    c.setFont("Helvetica", 11)
+    c.setFont(pdf_regular, 11)
     for ln in [
         f"Nakit Gelir:  {tr_money(cash_sum)}",
         f"Kart Gelir:   {tr_money(card_sum)}",
@@ -437,10 +476,10 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
         y -= 0.5*cm
 
     y -= 0.3*cm
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont(pdf_bold, 12)
     c.drawString(2*cm, y, "Gider Kırılımı (Kategori)")
     y -= 0.6*cm
-    c.setFont("Helvetica", 10)
+    c.setFont(pdf_regular, 10)
     top = by_cat.head(12) if len(by_cat) else by_cat
     for _, r in top.iterrows():
         c.drawString(2*cm, y, str(r["Kategori"])[:38])
@@ -453,7 +492,7 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
     if charts:
         c.showPage()
         y = h - 2*cm
-        c.setFont("Helvetica-Bold", 12)
+        c.setFont(pdf_bold, 12)
         c.drawString(2*cm, y, "Grafikler")
         y -= 0.8*cm
         for img in charts:
@@ -468,6 +507,7 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
     return buf.read()
 
 def build_yearly_pdf(conn, year: int) -> bytes:
+    pdf_regular, pdf_bold = get_pdf_fonts()
     start = date(year, 1, 1)
     end = date(year + 1, 1, 1)
     start_s, end_s = start.isoformat(), end.isoformat()
@@ -522,17 +562,17 @@ def build_yearly_pdf(conn, year: int) -> bytes:
     w, h = A4
 
     y = h - 2*cm
-    c.setFont("Helvetica-Bold", 16)
+    c.setFont(pdf_bold, 16)
     c.drawString(2*cm, y, "Oldschool Esports Center Finans Raporu")
     y -= 0.8*cm
-    c.setFont("Helvetica", 11)
+    c.setFont(pdf_regular, 11)
     c.drawString(2*cm, y, f"Yıl: {year}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 1.2*cm
 
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont(pdf_bold, 12)
     c.drawString(2*cm, y, "Yıllık Özet")
     y -= 0.6*cm
-    c.setFont("Helvetica", 11)
+    c.setFont(pdf_regular, 11)
     for ln in [
         f"Nakit Gelir:  {tr_money(cash_sum)}",
         f"Kart Gelir:   {tr_money(card_sum)}",
@@ -544,10 +584,10 @@ def build_yearly_pdf(conn, year: int) -> bytes:
         y -= 0.5*cm
 
     y -= 0.3*cm
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont(pdf_bold, 12)
     c.drawString(2*cm, y, "Aylık Tablo")
     y -= 0.6*cm
-    c.setFont("Helvetica", 10)
+    c.setFont(pdf_regular, 10)
     for _, r in df.iterrows():
         c.drawString(2*cm, y, str(r["ym"]))
         c.drawRightString(w-2*cm, y,
@@ -560,7 +600,7 @@ def build_yearly_pdf(conn, year: int) -> bytes:
     if charts:
         c.showPage()
         y = h - 2*cm
-        c.setFont("Helvetica-Bold", 12)
+        c.setFont(pdf_bold, 12)
         c.drawString(2*cm, y, "Grafikler")
         y -= 0.8*cm
         for img in charts:
@@ -609,9 +649,30 @@ div[data-testid="stDataFrame"] {
   box-shadow: 0 2px 10px rgba(17,24,39,0.04);
 }
 hr { border-color: rgba(31,41,55,0.08); }
-</style>"""
 
-st.set_page_config(page_title=APP_TITLE, layout="wide")
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .block-container {
+    padding-top: 0.8rem;
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+    padding-bottom: 1rem;
+  }
+  h1 { font-size: 1.35rem !important; }
+  h2, h3 { font-size: 1.1rem !important; }
+  div[data-testid="stMetric"] {
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+  .stButton>button, .stDownloadButton>button {
+    width: 100%;
+    min-height: 2.4rem;
+  }
+  div[data-testid="stDataFrame"] {
+    border-radius: 10px;
+  }
+}
+</style>"""
 
 # ---------- LOGIN SYSTEM ----------
 def check_login():
@@ -658,7 +719,11 @@ seed_defaults_if_empty(conn, default_month)
 
 with st.sidebar:
     st.header("Ay Seçimi")
-    selected_month = st.text_input("Ay (YYYY-AA)", value=default_month, help="Örn: 2026-02")
+    selected_month_input = st.text_input("Ay (YYYY-AA)", value=default_month, help="Örn: 2026-02")
+    selected_month = selected_month_input.strip()
+    if not is_valid_ym(selected_month):
+        st.warning(f"Geçersiz ay formatı: '{selected_month_input}'. Varsayılan ay kullanılıyor: {default_month}")
+        selected_month = default_month
     st.caption("Bu ay üzerinden raporlar gösterilir.")
     st.divider()
     locked_now = is_month_locked(conn, selected_month)
@@ -670,6 +735,8 @@ with st.sidebar:
     st.divider()
     st.header("Menü")
     page = st.radio("Sayfa", ["🏠 Dashboard", "💰 Günlük Kasa", "🧾 Gider Yönetimi", "🔁 Sabitler (Kurallar)", "🏦 Krediler", "💳 Kart Taksitleri", "📤 Veri Dökümü", "⚙️ Ayarlar"])
+    st.divider()
+    mobile_mode = st.toggle("Mobil görünüm", value=False, help="Dar ekranlarda daha rahat kullanım için düzeni sadeleştirir.")
 
 ensure_month_open(conn, selected_month)
 auto_generate_for_month(conn, selected_month)
@@ -699,29 +766,46 @@ if page == "🏠 Dashboard":
     total_exp = float(exp["amount"].sum()) if len(exp) else 0.0
     net = total_rev - total_exp
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Toplam Gelir", tr_money(total_rev))
-    c2.metric("Toplam Gider", tr_money(total_exp))
-    c3.metric("Net", tr_money(net))
-    c4.metric("Bakiye (Ay)", tr_money(net))# Hızlı İşlemler
-    a1, a2, a3, a4 = st.columns([1, 1, 1.2, 1.2])
-    with a1:
+    if mobile_mode:
+        m1, m2 = st.columns(2)
+        m1.metric("Toplam Gelir", tr_money(total_rev))
+        m2.metric("Toplam Gider", tr_money(total_exp))
+        m3, m4 = st.columns(2)
+        m3.metric("Net", tr_money(net))
+        m4.metric("Bakiye (Ay)", tr_money(net))
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Toplam Gelir", tr_money(total_rev))
+        c2.metric("Toplam Gider", tr_money(total_exp))
+        c3.metric("Net", tr_money(net))
+        c4.metric("Bakiye (Ay)", tr_money(net))
+
+    year_sel = int(selected_month.split("-")[0])
+    if mobile_mode:
         if st.button("🔄 Yenile"):
             st.rerun()
-    with a2:
         st.caption("PDF Rapor")
-    with a3:
         st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf(conn, selected_month),
-                           file_name=f"finans_raporu_{selected_month}.pdf")
-    with a4:
-        year_sel = int(selected_month.split("-")[0])
+                           file_name=f"finans_raporu_{selected_month}.pdf", use_container_width=True)
         st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf(conn, year_sel),
-                           file_name=f"finans_raporu_{year_sel}.pdf")
+                           file_name=f"finans_raporu_{year_sel}.pdf", use_container_width=True)
+    else:
+        a1, a2, a3, a4 = st.columns([1, 1, 1.2, 1.2])
+        with a1:
+            if st.button("🔄 Yenile"):
+                st.rerun()
+        with a2:
+            st.caption("PDF Rapor")
+        with a3:
+            st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf(conn, selected_month),
+                               file_name=f"finans_raporu_{selected_month}.pdf")
+        with a4:
+            st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf(conn, year_sel),
+                               file_name=f"finans_raporu_{year_sel}.pdf")
 
     st.divider()
 
-    left, right = st.columns([1.2, 1])
-    with left:
+    def render_income_table():
         st.markdown("### Günlük Gelir (Nakit/Kart)")
         if len(rev):
             rev_display = rev.copy()
@@ -734,17 +818,27 @@ if page == "🏠 Dashboard":
             st.dataframe(rev_display, use_container_width=True, hide_index=True)
         else:
             st.info("Bu ay için günlük kasa girişi yok.")
-    with right:
+
+    def render_expense_breakdown():
         st.markdown("### Gider Kırılımı (Kategori)")
         if len(exp):
             exp_disp = format_expense_for_display(exp)
             by_cat = exp_disp.groupby("Kategori", as_index=False)["Tutar"].sum().sort_values("Tutar", ascending=False)
             st.dataframe(by_cat, use_container_width=True, hide_index=True)
-            # Grafik
             chart_df = by_cat.set_index("Kategori")
             st.bar_chart(chart_df)
         else:
             st.info("Bu ay için gider kaydı yok.")
+
+    if mobile_mode:
+        render_income_table()
+        render_expense_breakdown()
+    else:
+        left, right = st.columns([1.2, 1])
+        with left:
+            render_income_table()
+        with right:
+            render_expense_breakdown()
 
     st.divider()
     st.markdown("### Gider Listesi")
@@ -865,9 +959,13 @@ elif page == "🧾 Gider Yönetimi":
             epm = st.selectbox("Ödeme Tipi (düzenle)", ["Nakit", "Kart", "Havale"], index=["Nakit","Kart","Havale"].index(str(row["pay_method"])) if str(row["pay_method"]) in ["Nakit","Kart","Havale"] else 0)
             enote = st.text_input("Not (düzenle)", value=str(row["note"]) if pd.notna(row["note"]) else "")
 
-            c1, c2 = st.columns(2)
-            save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-            delete = c2.form_submit_button("Sil", type="secondary")
+            if mobile_mode:
+                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = st.form_submit_button("Sil", type="secondary")
+            else:
+                c1, c2 = st.columns(2)
+                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = c2.form_submit_button("Sil", type="secondary")
 
         if save:
             conn.execute(
@@ -930,10 +1028,15 @@ elif page == "🔁 Sabitler (Kurallar)":
             e_pm   = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"], index=["Nakit","Kart","Havale"].index(str(r["pay_method"])), key="rule_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="rule_edit_active")
 
-            c1, c2, c3 = st.columns([1,1,1])
-            save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-            delete = c2.form_submit_button("Sil (Kalıcı)")
-            toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
+            if mobile_mode:
+                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = st.form_submit_button("Sil (Kalıcı)")
+                toggle = st.form_submit_button("Sadece Aktif/Pasif Değiştir")
+            else:
+                c1, c2, c3 = st.columns([1,1,1])
+                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = c2.form_submit_button("Sil (Kalıcı)")
+                toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
 
         if save:
             conn.execute(
@@ -1004,10 +1107,15 @@ elif page == "🏦 Krediler":
             e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="loan_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="loan_edit_active")
 
-            c1, c2, c3 = st.columns([1,1,1])
-            save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-            delete = c2.form_submit_button("Sil (Kalıcı)")
-            toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
+            if mobile_mode:
+                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = st.form_submit_button("Sil (Kalıcı)")
+                toggle = st.form_submit_button("Sadece Aktif/Pasif Değiştir")
+            else:
+                c1, c2, c3 = st.columns([1,1,1])
+                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = c2.form_submit_button("Sil (Kalıcı)")
+                toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
 
         if save:
             conn.execute(
@@ -1078,10 +1186,15 @@ elif page == "💳 Kart Taksitleri":
             e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="plan_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="plan_edit_active")
 
-            c1, c2, c3 = st.columns([1,1,1])
-            save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-            delete = c2.form_submit_button("Sil (Kalıcı)")
-            toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
+            if mobile_mode:
+                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = st.form_submit_button("Sil (Kalıcı)")
+                toggle = st.form_submit_button("Sadece Aktif/Pasif Değiştir")
+            else:
+                c1, c2, c3 = st.columns([1,1,1])
+                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
+                delete = c2.form_submit_button("Sil (Kalıcı)")
+                toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
 
         if save:
             conn.execute(
@@ -1131,8 +1244,19 @@ elif page == "📤 Veri Dökümü":
     exp_disp = format_expense_for_display(exp)
     st.dataframe(exp_disp, use_container_width=True, hide_index=True)
 
-    st.download_button("📥 Gelir CSV indir", data=rev.to_csv(index=False).encode("utf-8-sig"), file_name=f"gelir_{selected_month}.csv")
-    st.download_button("📥 Gider CSV indir", data=exp_disp.to_csv(index=False).encode("utf-8-sig"), file_name=f"gider_{selected_month}.csv")
+    if mobile_mode:
+        st.download_button("📥 Gelir CSV indir", data=rev.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"gelir_{selected_month}.csv", use_container_width=True)
+        st.download_button("📥 Gider CSV indir", data=exp_disp.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"gider_{selected_month}.csv", use_container_width=True)
+    else:
+        d1, d2 = st.columns(2)
+        with d1:
+            st.download_button("📥 Gelir CSV indir", data=rev.to_csv(index=False).encode("utf-8-sig"),
+                               file_name=f"gelir_{selected_month}.csv")
+        with d2:
+            st.download_button("📥 Gider CSV indir", data=exp_disp.to_csv(index=False).encode("utf-8-sig"),
+                               file_name=f"gider_{selected_month}.csv")
 
 
 # --------- SETTINGS ----------
@@ -1153,8 +1277,8 @@ elif page == "⚙️ Ayarlar":
         }
     )
 
-    c1, c2 = st.columns([1, 3])
-    with c1:
+    save_container = st.container() if mobile_mode else st.columns([1, 3])[0]
+    with save_container:
         if st.button("💾 Kaydet", type="primary"):
             df = edited.copy()
             df["Kategori"] = df["Kategori"].astype(str).str.strip()
