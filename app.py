@@ -753,6 +753,57 @@ def _fig_to_imagereader(fig) -> ImageReader:
     buf.seek(0)
     return ImageReader(buf)
 
+
+
+def _pdf_money_plain(x: float) -> str:
+    return re.sub(r"^[^0-9\-]+", "", tr_money(float(x))).strip()
+
+def _pdf_draw_title_band(c, w, h, pdf_regular: str, pdf_bold: str, title: str, subtitle: str):
+    band_x = 1.6 * cm
+    band_y = h - 4.0 * cm
+    band_w = w - 3.2 * cm
+    band_h = 2.3 * cm
+    c.setFillColorRGB(0.94, 0.96, 0.99)
+    c.setStrokeColorRGB(0.84, 0.89, 0.96)
+    c.roundRect(band_x, band_y, band_w, band_h, 10, stroke=1, fill=1)
+    c.setFillColorRGB(0.09, 0.15, 0.28)
+    c.setFont(pdf_bold, 16)
+    pdf_draw(c, band_x + 0.45 * cm, band_y + 1.45 * cm, title)
+    c.setFont(pdf_regular, 10.5)
+    c.setFillColorRGB(0.24, 0.31, 0.45)
+    pdf_draw(c, band_x + 0.45 * cm, band_y + 0.65 * cm, subtitle)
+    c.setFillColorRGB(0, 0, 0)
+
+def _pdf_draw_metric_cards(c, w, y_top, pdf_regular: str, pdf_bold: str, metrics: list[tuple[str, float]]):
+    left = 2.0 * cm
+    gap = 0.7 * cm
+    card_w = (w - 2 * left - gap) / 2
+    card_h = 1.55 * cm
+    for idx, (label, value) in enumerate(metrics):
+        row = idx // 2
+        col = idx % 2
+        x = left + col * (card_w + gap)
+        y = y_top - row * (card_h + 0.35 * cm)
+        c.setFillColorRGB(1, 1, 1)
+        c.setStrokeColorRGB(0.88, 0.9, 0.93)
+        c.roundRect(x, y - card_h, card_w, card_h, 8, stroke=1, fill=1)
+
+        c.setFillColorRGB(0.42, 0.46, 0.52)
+        c.setFont(pdf_regular, 9)
+        pdf_draw(c, x + 0.35 * cm, y - 0.48 * cm, label)
+
+        value_color = (0.05, 0.39, 0.23)
+        if "Net" in label and float(value) < 0:
+            value_color = (0.67, 0.12, 0.09)
+        c.setFillColorRGB(*value_color)
+        c.setFont(pdf_bold, 12)
+        pdf_draw(c, x + 0.35 * cm, y - 1.10 * cm, tr_money(float(value)))
+        c.setFillColorRGB(0, 0, 0)
+
+    rows = (len(metrics) + 1) // 2
+    return y_top - rows * (card_h + 0.35 * cm) - 0.25 * cm
+
+
 def build_monthly_pdf(conn, ym_str: str) -> bytes:
     pdf_regular, pdf_bold = get_pdf_fonts()
     start, end = month_range(ym_str)
@@ -778,86 +829,120 @@ def build_monthly_pdf(conn, ym_str: str) -> bytes:
     total_exp = float(exp["amount"].sum()) if len(exp) else 0.0
     net = total_rev - total_exp
 
-    exp_disp = format_expense_for_display(exp) if len(exp) else pd.DataFrame(columns=["Tarih","Kategori","Tutar","Ödeme","Kaynak","Notlar"])
-    by_cat = (exp_disp.groupby("Kategori", as_index=False)["Tutar"].sum()
-              .sort_values("Tutar", ascending=False)) if len(exp_disp) else pd.DataFrame(columns=["Kategori","Tutar"])
+    exp_disp = format_expense_for_display(exp) if len(exp) else pd.DataFrame(columns=["Tarih", "Kategori", "Tutar", "Odeme", "Kaynak", "Notlar"])
+    by_cat = (exp_disp.groupby("Kategori", as_index=False)["Tutar"].sum().sort_values("Tutar", ascending=False)) if len(exp_disp) else pd.DataFrame(columns=["Kategori", "Tutar"])
     if len(by_cat):
         by_cat["Kategori"] = by_cat["Kategori"].apply(repair_text)
 
     charts = []
     if len(rev):
-        fig = plt.figure()
-        plt.plot(pd.to_datetime(rev["d"]), rev["total"])
-        plt.title("Günlük Toplam Gelir")
-        plt.xlabel("Tarih")
-        plt.ylabel("₺")
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.plot(pd.to_datetime(rev["d"]), rev["total"], color="#1f4e79", linewidth=2.2)
+        ax.set_title("Gunluk Toplam Gelir", fontsize=11, fontweight="bold")
+        ax.set_xlabel("Tarih")
+        ax.set_ylabel("TL")
+        ax.grid(axis="y", alpha=0.25, linestyle="--")
+        fig.tight_layout()
         charts.append(_fig_to_imagereader(fig))
 
     if len(by_cat):
-        fig = plt.figure()
-        plt.bar(by_cat["Kategori"], by_cat["Tutar"])
-        plt.title("Kategori Bazlı Gider")
-        plt.xlabel("Kategori")
-        plt.ylabel("₺")
-        plt.xticks(rotation=45, ha="right")
+        fig, ax = plt.subplots(figsize=(8, 3))
+        top10 = by_cat.head(10)
+        ax.bar(top10["Kategori"], top10["Tutar"], color="#2a7f62")
+        ax.set_title("Kategori Bazli Gider (Top 10)", fontsize=11, fontweight="bold")
+        ax.set_xlabel("Kategori")
+        ax.set_ylabel("TL")
+        ax.grid(axis="y", alpha=0.2, linestyle="--")
+        plt.setp(ax.get_xticklabels(), rotation=35, ha="right")
+        fig.tight_layout()
         charts.append(_fig_to_imagereader(fig))
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
 
-    y = h - 2*cm
-    c.setFont(pdf_bold, 16)
-    pdf_draw(c, 2*cm, y, "Oldschool Esports Center Finans Raporu")
-    y -= 0.8*cm
-    c.setFont(pdf_regular, 11)
-    pdf_draw(c, 2*cm, y, f"Ay: {ym_str}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    y -= 1.2*cm
+    _pdf_draw_title_band(
+        c, w, h, pdf_regular, pdf_bold,
+        "Oldschool Esports Center Finans Raporu",
+        f"Ay: {ym_str}   |   Olusturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    )
+    y = h - 4.6 * cm
 
-    c.setFont(pdf_bold, 12)
-    pdf_draw(c, 2*cm, y, "Özet")
-    y -= 0.6*cm
-    c.setFont(pdf_regular, 11)
-    for ln in [
-        f"Nakit Gelir:  {tr_money(cash_sum)}",
-        f"Kart Gelir:   {tr_money(card_sum)}",
-        f"Toplam Gelir: {tr_money(total_rev)}",
-        f"Toplam Gider: {tr_money(total_exp)}",
-        f"Net:          {tr_money(net)}",
-    ]:
-        pdf_draw(c, 2*cm, y, ln)
-        y -= 0.5*cm
+    y = _pdf_draw_metric_cards(
+        c, w, y, pdf_regular, pdf_bold,
+        [
+            ("Nakit Gelir", cash_sum),
+            ("Kart Gelir", card_sum),
+            ("Toplam Gelir", total_rev),
+            ("Toplam Gider", total_exp),
+            ("Net", net),
+        ],
+    )
 
-    y -= 0.3*cm
+    c.setFillColorRGB(0.08, 0.13, 0.24)
     c.setFont(pdf_bold, 12)
-    pdf_draw(c, 2*cm, y, "Gider Kırılımı (Kategori)")
-    y -= 0.6*cm
-    c.setFont(pdf_regular, 10)
+    pdf_draw(c, 2 * cm, y, "Gider Dagilimi (Kategori)")
+    c.setFillColorRGB(0, 0, 0)
+    y -= 0.45 * cm
+
     top = by_cat.head(12) if len(by_cat) else by_cat
-    for _, r in top.iterrows():
-        pdf_draw(c, 2*cm, y, str(r["Kategori"])[:38])
-        pdf_draw(c, w-2*cm, y, f"{tr_money(float(r['Tutar']))[1:]}", right=True)
-        y -= 0.45*cm
-        if y < 5*cm:
-            c.showPage()
-            y = h - 2*cm
+    if len(top):
+        table_x = 2 * cm
+        table_w = w - 4 * cm
+        row_h = 0.58 * cm
+
+        c.setFillColorRGB(0.92, 0.95, 0.99)
+        c.setStrokeColorRGB(0.82, 0.87, 0.94)
+        c.roundRect(table_x, y - row_h, table_w, row_h, 4, stroke=1, fill=1)
+        c.setFillColorRGB(0.1, 0.19, 0.35)
+        c.setFont(pdf_bold, 10)
+        pdf_draw(c, table_x + 0.25 * cm, y - 0.38 * cm, "Kategori")
+        pdf_draw(c, table_x + table_w - 0.25 * cm, y - 0.38 * cm, "Tutar", right=True)
+        y -= row_h
+
+        for i, (_, r) in enumerate(top.iterrows()):
+            if y < 4.8 * cm:
+                c.showPage()
+                _pdf_draw_title_band(c, w, h, pdf_regular, pdf_bold, "Oldschool Esports Center Finans Raporu", f"Ay: {ym_str}   |   Kategori Tablosu (devam)")
+                y = h - 5.0 * cm
+
+            shade = 0.985 if i % 2 == 0 else 0.965
+            c.setFillColorRGB(shade, shade, shade)
+            c.setStrokeColorRGB(0.9, 0.9, 0.9)
+            c.rect(table_x, y - row_h, table_w, row_h, stroke=1, fill=1)
+            c.setFillColorRGB(0.1, 0.1, 0.1)
+            c.setFont(pdf_regular, 10)
+            pdf_draw(c, table_x + 0.25 * cm, y - 0.38 * cm, str(r["Kategori"])[:40])
+            pdf_draw(c, table_x + table_w - 0.25 * cm, y - 0.38 * cm, _pdf_money_plain(float(r["Tutar"])), right=True)
+            y -= row_h
+    else:
+        c.setFont(pdf_regular, 10)
+        c.setFillColorRGB(0.45, 0.45, 0.45)
+        pdf_draw(c, 2 * cm, y, "Bu ay icin gider kaydi bulunamadi.")
+        c.setFillColorRGB(0, 0, 0)
 
     if charts:
         c.showPage()
-        y = h - 2*cm
-        c.setFont(pdf_bold, 12)
-        pdf_draw(c, 2*cm, y, "Grafikler")
-        y -= 0.8*cm
+        y = h - 2 * cm
+        c.setFillColorRGB(0.08, 0.13, 0.24)
+        c.setFont(pdf_bold, 13)
+        pdf_draw(c, 2 * cm, y, "Grafikler")
+        c.setFillColorRGB(0, 0, 0)
+        y -= 0.9 * cm
         for img in charts:
-            c.drawImage(img, 2*cm, y-10*cm, width=w-4*cm, height=9.5*cm, preserveAspectRatio=True, anchor='n')
-            y -= 11*cm
-            if y < 4*cm:
+            c.setFillColorRGB(0.97, 0.98, 1.0)
+            c.setStrokeColorRGB(0.85, 0.88, 0.93)
+            c.roundRect(1.7 * cm, y - 9.9 * cm, w - 3.4 * cm, 9.7 * cm, 8, stroke=1, fill=1)
+            c.drawImage(img, 2 * cm, y - 9.6 * cm, width=w - 4 * cm, height=9.1 * cm, preserveAspectRatio=True, anchor='n')
+            y -= 10.8 * cm
+            if y < 4 * cm:
                 c.showPage()
-                y = h - 2*cm
+                y = h - 2 * cm
 
     c.save()
     buf.seek(0)
     return buf.read()
+
 
 def build_yearly_pdf(conn, year: int) -> bytes:
     pdf_regular, pdf_bold = get_pdf_fonts()
