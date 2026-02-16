@@ -5,4 +5,6 @@ reportlab==4.4.10
 Pillow==11.1.0
 google-cloud-vision
 psycopg2-binary
+psycopg[binary]
+pg8000
 

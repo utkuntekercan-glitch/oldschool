@@ -44,6 +44,14 @@ try:
     import psycopg2
 except Exception:
     psycopg2 = None
+try:
+    import psycopg
+except Exception:
+    psycopg = None
+try:
+    import pg8000.dbapi as pg8000
+except Exception:
+    pg8000 = None
 
 APP_TITLE = "Oldschool Esports Center • Finans Paneli (FINAL v4)"
 DB_PATH = Path("oldschool_finance.db")
@@ -99,12 +107,24 @@ class DBConn:
 
 def get_conn():
     if USE_POSTGRES:
-        if psycopg2 is None:
-            raise RuntimeError("Postgres icin psycopg2-binary gerekli. requirements.txt dosyasina ekleyin.")
-        if "sslmode=" in DATABASE_URL:
-            raw = psycopg2.connect(DATABASE_URL)
+        if psycopg2 is not None:
+            if "sslmode=" in DATABASE_URL:
+                raw = psycopg2.connect(DATABASE_URL)
+            else:
+                raw = psycopg2.connect(DATABASE_URL, sslmode="require")
+        elif psycopg is not None:
+            if "sslmode=" in DATABASE_URL:
+                raw = psycopg.connect(DATABASE_URL)
+            else:
+                raw = psycopg.connect(DATABASE_URL, sslmode="require")
+        elif pg8000 is not None:
+            url = DATABASE_URL
+            if "sslmode=" not in url:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}sslmode=require"
+            raw = pg8000.connect(url)
         else:
-            raw = psycopg2.connect(DATABASE_URL, sslmode="require")
+            raise RuntimeError("Postgres surucusu bulunamadi. requirements.txt icine psycopg2-binary veya psycopg[binary] ekleyin.")
         raw.autocommit = False
         return DBConn("postgres", raw)
 
