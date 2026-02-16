@@ -1549,9 +1549,9 @@ if page == "🏠 Dashboard":
     if mobile_mode:
         if st.button("🔄 Yenile"):
             st.rerun()
-        st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf_cached(selected_month, db_mode),
+        st.download_button("Aylık Rapor", data=build_monthly_pdf_cached(selected_month, db_mode),
                            file_name=f"finans_raporu_{selected_month}.pdf", use_container_width=True)
-        st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf_cached(year_sel, db_mode),
+        st.download_button("Yıllık Rapor", data=build_yearly_pdf_cached(year_sel, db_mode),
                            file_name=f"finans_raporu_{year_sel}.pdf", use_container_width=True)
     else:
         a1, a3, a4 = st.columns([1, 1.2, 1.2])
@@ -1559,10 +1559,10 @@ if page == "🏠 Dashboard":
             if st.button("🔄 Yenile"):
                 st.rerun()
         with a3:
-            st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf_cached(selected_month, db_mode),
+            st.download_button("Aylık Rapor", data=build_monthly_pdf_cached(selected_month, db_mode),
                                file_name=f"finans_raporu_{selected_month}.pdf")
         with a4:
-            st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf_cached(year_sel, db_mode),
+            st.download_button("Yıllık Rapor", data=build_yearly_pdf_cached(year_sel, db_mode),
                                file_name=f"finans_raporu_{year_sel}.pdf")
 
     st.divider()
