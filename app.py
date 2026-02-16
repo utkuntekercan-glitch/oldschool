@@ -1568,7 +1568,7 @@ if page == "🏠 Dashboard":
     st.divider()
 
     def render_income_table():
-        st.markdown("### Günlük Gelir (Nakit/Kart)")
+        st.markdown("<h3 style='text-align:center;'>Gelir</h3>", unsafe_allow_html=True)
         if len(rev):
             rev_display = rev.copy()
             rev_display.rename(columns={
