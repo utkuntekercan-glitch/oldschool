@@ -1641,7 +1641,7 @@ if page == "🏠 Dashboard":
 
 # --------- DAILY CASH ----------
 elif page == "💰 Günlük Kasa":
-    st.subheader("💰 Günlük Kasa Girişi (Toplam Nakit / Toplam Kart)")
+    st.subheader("💰 Günlük Kasa")
     if is_month_locked(conn, selected_month):
         st.warning("Bu ay kilitli. Kayıt ekleme/düzenleme kapalı.")
     if "cash_form_date" not in st.session_state:
@@ -1652,6 +1652,8 @@ elif page == "💰 Günlük Kasa":
         st.session_state.cash_form_card = 0.0
     if "cash_form_note" not in st.session_state:
         st.session_state.cash_form_note = ""
+    if "cash_form_last_loaded_date" not in st.session_state:
+        st.session_state.cash_form_last_loaded_date = None
     if "daily_cash_ocr_text_cache" not in st.session_state:
         st.session_state.daily_cash_ocr_text_cache = ""
     if "daily_cash_ocr_status" not in st.session_state:
@@ -1703,9 +1705,28 @@ elif page == "💰 Günlük Kasa":
         )
 
     d = st.date_input("Tarih", key="cash_form_date")
+
+    selected_cash_date = d.isoformat()
+    if st.session_state.cash_form_last_loaded_date != selected_cash_date:
+        existing = conn.execute(
+            "SELECT cash, card, note FROM daily_cash WHERE d=?",
+            (selected_cash_date,),
+        ).fetchone()
+        if existing:
+            st.session_state.cash_form_cash = float(existing[0] or 0.0)
+            st.session_state.cash_form_card = float(existing[1] or 0.0)
+            st.session_state.cash_form_note = "" if existing[2] is None else str(existing[2])
+        else:
+            st.session_state.cash_form_cash = 0.0
+            st.session_state.cash_form_card = 0.0
+            st.session_state.cash_form_note = ""
+        st.session_state.cash_form_last_loaded_date = selected_cash_date
+        st.rerun()
+
     cash = st.number_input("Nakit (₺)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_cash")
     card = st.number_input("Kart (₺)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_card")
     note = st.text_input("Not (opsiyonel)", key="cash_form_note")
+    st.caption(f"Toplam: {tr_money(float(cash) + float(card))}")
 
     locked = is_month_locked(conn, selected_month)
 
