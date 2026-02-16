@@ -40,15 +40,24 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+try:
+    import psycopg2
+except Exception:
+    psycopg2 = None
+
 APP_TITLE = "Oldschool Esports Center • Finans Paneli (FINAL v4)"
 DB_PATH = Path("oldschool_finance.db")
+DATABASE_URL = str(st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", ""))).strip()
+USE_POSTGRES = bool(DATABASE_URL)
 
 # Keep chart labels readable for Turkish text in generated PDF images.
 plt.rcParams["font.family"] = "DejaVu Sans"
 
 def ensure_backup():
-    """Her açılışta veritabanını backups/ klasörüne kopyalar."""
+    """Her acilista veritabanini backups/ klasorune kopyalar."""
     try:
+        if USE_POSTGRES:
+            return
         if not DB_PATH.exists():
             return
         backups = Path("backups")
@@ -61,24 +70,64 @@ def ensure_backup():
 
 
 # ---------- DB ----------
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
+class DBConn:
+    def __init__(self, driver: str, raw_conn):
+        self.driver = driver
+        self._conn = raw_conn
 
-def init_db(conn: sqlite3.Connection):
-    conn.execute("""
+    def _sql(self, q: str) -> str:
+        if self.driver == "postgres":
+            return q.replace("?", "%s")
+        return q
+
+    def execute(self, q: str, params=()):
+        cur = self._conn.cursor()
+        cur.execute(self._sql(q), tuple(params))
+        return cur
+
+    def executemany(self, q: str, seq):
+        cur = self._conn.cursor()
+        cur.executemany(self._sql(q), [tuple(x) for x in seq])
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
+def get_conn():
+    if USE_POSTGRES:
+        if psycopg2 is None:
+            raise RuntimeError("Postgres icin psycopg2-binary gerekli. requirements.txt dosyasina ekleyin.")
+        if "sslmode=" in DATABASE_URL:
+            raw = psycopg2.connect(DATABASE_URL)
+        else:
+            raw = psycopg2.connect(DATABASE_URL, sslmode="require")
+        raw.autocommit = False
+        return DBConn("postgres", raw)
+
+    raw = sqlite3.connect(DB_PATH, check_same_thread=False)
+    raw.execute("PRAGMA foreign_keys = ON;")
+    return DBConn("sqlite", raw)
+
+
+def init_db(conn: DBConn):
+    id_col = "BIGSERIAL PRIMARY KEY" if conn.driver == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+
+    conn.execute(f"""
     CREATE TABLE IF NOT EXISTS daily_cash (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         d TEXT NOT NULL UNIQUE,
         cash REAL NOT NULL DEFAULT 0,
         card REAL NOT NULL DEFAULT 0,
         note TEXT
     );
     """)
-    conn.execute("""
+    conn.execute(f"""
     CREATE TABLE IF NOT EXISTS expense (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         d TEXT NOT NULL,
         category TEXT NOT NULL,
         amount REAL NOT NULL,
@@ -101,9 +150,9 @@ def init_db(conn: sqlite3.Connection):
         locked_at TEXT
     );
     """)
-    conn.execute("""
+    conn.execute(f"""
     CREATE TABLE IF NOT EXISTS recurring_rule (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         name TEXT NOT NULL,
         category TEXT NOT NULL,
         amount REAL NOT NULL,
@@ -112,9 +161,9 @@ def init_db(conn: sqlite3.Connection):
         active INTEGER NOT NULL DEFAULT 1
     );
     """)
-    conn.execute("""
+    conn.execute(f"""
     CREATE TABLE IF NOT EXISTS loan (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         name TEXT NOT NULL,
         monthly_amount REAL NOT NULL,
         start_month TEXT NOT NULL, -- YYYY-MM
@@ -123,9 +172,9 @@ def init_db(conn: sqlite3.Connection):
         active INTEGER NOT NULL DEFAULT 1
     );
     """)
-    conn.execute("""
+    conn.execute(f"""
     CREATE TABLE IF NOT EXISTS installment_plan (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         name TEXT NOT NULL,
         total_amount REAL NOT NULL,
         months_total INTEGER NOT NULL,
@@ -141,6 +190,7 @@ def init_db(conn: sqlite3.Connection):
     );
     """)
     conn.commit()
+
 
 def ym(d: date) -> str:
     return f"{d.year:04d}-{d.month:02d}"
@@ -262,7 +312,10 @@ def rebuild_auto_for_month(conn, ym_str: str):
     auto_generate_for_month(conn, ym_str)
 
 def df_query(conn, q, params=()):
-    return pd.read_sql_query(q, conn, params=params)
+    cur = conn.execute(q, params)
+    rows = cur.fetchall()
+    cols = [c[0] for c in cur.description] if cur.description else []
+    return pd.DataFrame(rows, columns=cols)
 
 def is_month_locked(conn, ym_str: str) -> bool:
     row = conn.execute("SELECT locked FROM month_lock WHERE month=?", (ym_str,)).fetchone()
@@ -342,7 +395,7 @@ def seed_defaults_if_empty(conn, start_month: str):
             ("Gündüz Maaş",1),("Maaş",1),("Kira",1),("İnternet",1),("Muhasebe",1),
             ("Sigorta",1),("Alarm",1),("Kredi",1),("Kart Taksit",1),("Diğer",1)
         ]
-        conn.executemany("INSERT OR IGNORE INTO categories(name, active) VALUES(?,?)", default_cats)
+        conn.executemany("INSERT INTO categories(name, active) VALUES(?,?) ON CONFLICT(name) DO NOTHING", default_cats)
         conn.commit()
 
 
