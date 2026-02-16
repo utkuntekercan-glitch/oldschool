@@ -211,6 +211,22 @@ def init_db(conn: DBConn):
     """)
     conn.commit()
 
+def sync_postgres_sequences(conn: DBConn):
+    """Ensure BIGSERIAL sequences are aligned with current max(id) after data imports."""
+    if conn.driver != "postgres":
+        return
+
+    id_tables = ["daily_cash", "expense", "recurring_rule", "loan", "installment_plan"]
+    for table in id_tables:
+        conn.execute(f"""
+            SELECT setval(
+                pg_get_serial_sequence('{table}', 'id'),
+                COALESCE((SELECT MAX(id) FROM {table}), 0) + 1,
+                false
+            )
+        """)
+    conn.commit()
+
 
 def ym(d: date) -> str:
     return f"{d.year:04d}-{d.month:02d}"
@@ -1360,6 +1376,7 @@ if "undo_flash" in st.session_state:
 
 conn = get_conn()
 init_db(conn)
+sync_postgres_sequences(conn)
 ensure_backup()
 
 today = date.today()
