@@ -245,6 +245,22 @@ def auto_generate_for_month(conn, ym_str: str):
             upsert_auto_expense(d, "Kart Taksit", monthly, pm, "INST", int(pid), str(name))
     conn.commit()
 
+def rebuild_auto_for_month(conn, ym_str: str):
+    """Rebuild auto-generated rows for one month to clean stale/duplicate auto expenses."""
+    start, end = month_range(ym_str)
+    conn.execute("""
+        DELETE FROM expense
+        WHERE d >= ? AND d < ?
+          AND source='auto'
+          AND (
+              note LIKE 'RULE:%'
+              OR note LIKE 'LOAN:%'
+              OR note LIKE 'INST:%'
+          )
+    """, (start.isoformat(), end.isoformat()))
+    conn.commit()
+    auto_generate_for_month(conn, ym_str)
+
 def df_query(conn, q, params=()):
     return pd.read_sql_query(q, conn, params=params)
 
@@ -1229,6 +1245,10 @@ with st.sidebar:
     new_locked = st.toggle(lock_label, value=locked_now, help="Kilitliyken bu ay için yeni kayıt ekleme/düzenleme kapatılır.")
     if new_locked != locked_now:
         set_month_lock(conn, selected_month, new_locked)
+        st.rerun()
+    if st.button("Bu ay oto giderleri yenile", use_container_width=True, help="Otomatik satirlari silip mevcut kurallardan yeniden olusturur."):
+        rebuild_auto_for_month(conn, selected_month)
+        st.success("Bu ayin otomatik giderleri yenilendi.")
         st.rerun()
     st.divider()
     st.header("Menü")
