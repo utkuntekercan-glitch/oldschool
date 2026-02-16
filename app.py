@@ -1397,6 +1397,8 @@ hr { border-color: rgba(31,41,55,0.08); }
 def check_login():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+    if "user_role" not in st.session_state:
+        st.session_state.user_role = None
 
     if st.session_state.authenticated:
         return True
@@ -1407,11 +1409,18 @@ def check_login():
     password = st.text_input("Şifre", type="password")
 
     if st.button("Giriş"):
-        if (
-            username == st.secrets.get("APP_USER")
-            and password == st.secrets.get("APP_PASSWORD")
-        ):
+        admin_user = str(st.secrets.get("APP_USER", ""))
+        admin_pass = str(st.secrets.get("APP_PASSWORD", ""))
+        cash_user = str(st.secrets.get("CASH_USER", ""))
+        cash_pass = str(st.secrets.get("CASH_PASSWORD", ""))
+
+        if username == admin_user and password == admin_pass:
             st.session_state.authenticated = True
+            st.session_state.user_role = "admin"
+            st.rerun()
+        elif cash_user and cash_pass and username == cash_user and password == cash_pass:
+            st.session_state.authenticated = True
+            st.session_state.user_role = "cash_only"
             st.rerun()
         else:
             st.error("Hatalı kullanıcı adı veya şifre")
@@ -1421,6 +1430,9 @@ def check_login():
 
 if not check_login():
     st.stop()
+if st.session_state.get("user_role") not in ("admin", "cash_only"):
+    st.session_state.user_role = "admin"
+user_role = st.session_state.get("user_role", "admin")
 
 # ---------- END LOGIN ----------
 st.markdown(SOFT_CSS, unsafe_allow_html=True)
@@ -1491,19 +1503,28 @@ with st.sidebar:
     selected_month = st.session_state.selected_month_ui.strip()
     st.caption("Bu ay üzerinden raporlar gösterilir.")
     st.divider()
-    locked_now = is_month_locked(conn, selected_month)
-    lock_label = "🔒 Bu ay kilitli" if locked_now else "🔓 Bu ay açık"
-    new_locked = st.toggle(lock_label, value=locked_now, help="Kilitliyken bu ay için yeni kayıt ekleme/düzenleme kapatılır.")
-    if new_locked != locked_now:
-        set_month_lock(conn, selected_month, new_locked)
-        st.rerun()
-    if st.button("Bu ay oto giderleri yenile", use_container_width=True, help="Otomatik satirlari silip mevcut kurallardan yeniden olusturur."):
-        rebuild_auto_for_month(conn, selected_month)
-        st.success("Bu ayin otomatik giderleri yenilendi.")
-        st.rerun()
+    if user_role == "admin":
+        locked_now = is_month_locked(conn, selected_month)
+        lock_label = "🔒 Bu ay kilitli" if locked_now else "🔓 Bu ay açık"
+        new_locked = st.toggle(lock_label, value=locked_now, help="Kilitliyken bu ay için yeni kayıt ekleme/düzenleme kapatılır.")
+        if new_locked != locked_now:
+            set_month_lock(conn, selected_month, new_locked)
+            st.rerun()
+        if st.button("Bu ay oto giderleri yenile", use_container_width=True, help="Otomatik satirlari silip mevcut kurallardan yeniden olusturur."):
+            rebuild_auto_for_month(conn, selected_month)
+            st.success("Bu ayin otomatik giderleri yenilendi.")
+            st.rerun()
+    else:
+        st.caption("Yetki: Sadece Günlük Kasa")
     st.divider()
     st.header("Menü")
-    page = st.radio("Sayfa", ["🏠 Dashboard", "💰 Günlük Kasa", "🧾 Gider Yönetimi", "🔁 Sabitler (Kurallar)", "🏦 Krediler", "💳 Kart Taksitleri", "📤 Veri Dökümü", "⚙️ Ayarlar"])
+    if user_role == "admin":
+        page_options = ["🏠 Dashboard", "💰 Günlük Kasa", "🧾 Gider Yönetimi", "🔁 Sabitler (Kurallar)", "🏦 Krediler", "💳 Kart Taksitleri", "📤 Veri Dökümü", "⚙️ Ayarlar"]
+    else:
+        page_options = ["💰 Günlük Kasa"]
+    if st.session_state.get("page_ui") not in page_options:
+        st.session_state["page_ui"] = page_options[0]
+    page = st.radio("Sayfa", page_options, key="page_ui")
     st.divider()
     mobile_mode = st.toggle("Mobil görünüm", value=False, help="Dar ekranlarda daha rahat kullanım için düzeni sadeleştirir.")
     undo_action = st.session_state.get("undo_action")
