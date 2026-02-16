@@ -189,20 +189,39 @@ def ensure_month_open(conn, ym_str: str):
     return True
 
 def auto_generate_for_month(conn, ym_str: str):
-    """Sabitler + kredi + kart taksitlerini o ay için otomatik gider kaydı olarak ekler (zaten varsa tekrar eklemez)."""
+    """Adds or updates auto expense rows for rules, loans, and installments in the selected month."""
+    def upsert_auto_expense(d: str, category: str, amount: float, pay_method: str, note_prefix: str, entity_id: int, name: str):
+        note = f"{note_prefix}:{entity_id}:{name}"
+        legacy_pattern = f"{note_prefix}:{entity_id}:%"
+        existing_rows = conn.execute("""
+            SELECT id FROM expense
+            WHERE d=? AND source='auto' AND (note=? OR note LIKE ?)
+            ORDER BY id
+        """, (d, note, legacy_pattern)).fetchall()
+
+        if existing_rows:
+            keep_id = int(existing_rows[0][0])
+            conn.execute("""
+                UPDATE expense
+                SET category=?, amount=?, pay_method=?, note=?
+                WHERE id=?
+            """, (category, float(amount), pay_method, note, keep_id))
+
+            if len(existing_rows) > 1:
+                dup_ids = [int(r[0]) for r in existing_rows[1:]]
+                placeholders = ",".join("?" for _ in dup_ids)
+                conn.execute(f"DELETE FROM expense WHERE id IN ({placeholders})", dup_ids)
+        else:
+            conn.execute(
+                "INSERT INTO expense(d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?, 'auto')",
+                (d, category, float(amount), pay_method, note),
+            )
+
     # Recurring rules
     rules = conn.execute("SELECT id, name, category, amount, day_of_month, pay_method FROM recurring_rule WHERE active=1").fetchall()
     for rid, name, category, amount, dom, pm in rules:
         d = day_in_month(ym_str, dom).isoformat()
-        note = f"RULE:{rid}:{name}"
-        exists = conn.execute("""
-            SELECT 1 FROM expense
-            WHERE d=? AND category=? AND amount=? AND pay_method=? AND source='auto' AND note=?
-            LIMIT 1
-        """, (d, category, amount, pm, note)).fetchone()
-        if not exists:
-            conn.execute("INSERT INTO expense(d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?, 'auto')",
-                         (d, category, amount, pm, note))
+        upsert_auto_expense(d, category, amount, pm, "RULE", int(rid), str(name))
 
     # Loans
     loans = conn.execute("SELECT id, name, monthly_amount, start_month, months_total, pay_method FROM loan WHERE active=1").fetchall()
@@ -212,15 +231,7 @@ def auto_generate_for_month(conn, ym_str: str):
         idx = (cy - sy) * 12 + (cm - sm)  # 0-based
         if 0 <= idx < months_total:
             d = day_in_month(ym_str, 1).isoformat()
-            note = f"LOAN:{lid}:{name}"
-            exists = conn.execute("""
-                SELECT 1 FROM expense
-                WHERE d=? AND category=? AND amount=? AND pay_method=? AND source='auto' AND note=?
-                LIMIT 1
-            """, (d, "Kredi", monthly, pm, note)).fetchone()
-            if not exists:
-                conn.execute("INSERT INTO expense(d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?, 'auto')",
-                             (d, "Kredi", monthly, pm, note))
+            upsert_auto_expense(d, "Kredi", monthly, pm, "LOAN", int(lid), str(name))
 
     # Installments
     plans = conn.execute("SELECT id, name, total_amount, months_total, start_month, pay_method FROM installment_plan WHERE active=1").fetchall()
@@ -231,15 +242,7 @@ def auto_generate_for_month(conn, ym_str: str):
         if 0 <= idx < months_total:
             monthly = float(total) / float(months_total)
             d = day_in_month(ym_str, 1).isoformat()
-            note = f"INST:{pid}:{name}"
-            exists = conn.execute("""
-                SELECT 1 FROM expense
-                WHERE d=? AND category=? AND amount=? AND pay_method=? AND source='auto' AND note=?
-                LIMIT 1
-            """, (d, "Kart Taksit", monthly, pm, note)).fetchone()
-            if not exists:
-                conn.execute("INSERT INTO expense(d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?, 'auto')",
-                             (d, "Kart Taksit", monthly, pm, note))
+            upsert_auto_expense(d, "Kart Taksit", monthly, pm, "INST", int(pid), str(name))
     conn.commit()
 
 def df_query(conn, q, params=()):
