@@ -1374,10 +1374,27 @@ if "undo_flash" in st.session_state:
     else:
         st.error(msg)
 
-conn = get_conn()
-init_db(conn)
-sync_postgres_sequences(conn)
-ensure_backup()
+def get_session_conn():
+    conn = st.session_state.get("_db_conn")
+    if conn is not None:
+        try:
+            conn.execute("SELECT 1")
+            return conn
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    conn = get_conn()
+    st.session_state["_db_conn"] = conn
+    return conn
+
+conn = get_session_conn()
+if "_db_bootstrapped" not in st.session_state:
+    init_db(conn)
+    sync_postgres_sequences(conn)
+    ensure_backup()
+    st.session_state["_db_bootstrapped"] = True
 
 today = date.today()
 default_month = ym(today)
