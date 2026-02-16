@@ -53,7 +53,7 @@ try:
 except Exception:
     pg8000 = None
 
-APP_TITLE = "Oldschool Esports Center • Finans Paneli (FINAL v4)"
+APP_TITLE = "Oldschool Espor Center"
 DB_PATH = Path("oldschool_finance.db")
 DATABASE_URL = str(st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", ""))).strip()
 USE_POSTGRES = bool(DATABASE_URL)
@@ -1424,7 +1424,7 @@ if not check_login():
 
 # ---------- END LOGIN ----------
 st.markdown(SOFT_CSS, unsafe_allow_html=True)
-st.title(APP_TITLE)
+st.markdown(f"<h1 style='text-align:center;'>{APP_TITLE}</h1>", unsafe_allow_html=True)
 if "undo_flash" in st.session_state:
     ok, msg = st.session_state.pop("undo_flash")
     if ok:
