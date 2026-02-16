@@ -1178,6 +1178,28 @@ def build_yearly_pdf(conn, year: int) -> bytes:
     buf.seek(0)
     return buf.read()
 
+@st.cache_data(show_spinner=False)
+def build_monthly_pdf_cached(ym_str: str, db_mode: str) -> bytes:
+    c = get_conn()
+    try:
+        return build_monthly_pdf(c, ym_str)
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+
+@st.cache_data(show_spinner=False)
+def build_yearly_pdf_cached(year: int, db_mode: str) -> bytes:
+    c = get_conn()
+    try:
+        return build_yearly_pdf(c, year)
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+
 
 # ---------- UI ----------
 
@@ -1528,9 +1550,9 @@ if page == "🏠 Dashboard":
         if st.button("🔄 Yenile"):
             st.rerun()
         st.caption("PDF Rapor")
-        st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf(conn, selected_month),
+        st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf_cached(selected_month, db_mode),
                            file_name=f"finans_raporu_{selected_month}.pdf", use_container_width=True)
-        st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf(conn, year_sel),
+        st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf_cached(year_sel, db_mode),
                            file_name=f"finans_raporu_{year_sel}.pdf", use_container_width=True)
     else:
         a1, a2, a3, a4 = st.columns([1, 1, 1.2, 1.2])
@@ -1540,10 +1562,10 @@ if page == "🏠 Dashboard":
         with a2:
             st.caption("PDF Rapor")
         with a3:
-            st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf(conn, selected_month),
+            st.download_button("📄 Ay Raporu (PDF)", data=build_monthly_pdf_cached(selected_month, db_mode),
                                file_name=f"finans_raporu_{selected_month}.pdf")
         with a4:
-            st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf(conn, year_sel),
+            st.download_button("📄 Yıl Raporu (PDF)", data=build_yearly_pdf_cached(year_sel, db_mode),
                                file_name=f"finans_raporu_{year_sel}.pdf")
 
     st.divider()
