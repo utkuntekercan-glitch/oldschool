@@ -100,6 +100,10 @@ class DBConn:
 
     def commit(self):
         self._conn.commit()
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
 
     def close(self):
         self._conn.close()
@@ -359,6 +363,31 @@ def df_query(conn, q, params=()):
     rows = cur.fetchall()
     cols = [c[0] for c in cur.description] if cur.description else []
     return pd.DataFrame(rows, columns=cols)
+
+@st.cache_data(show_spinner=False, ttl=20)
+def load_dashboard_month_data(ym_str: str, db_mode: str):
+    start, end = month_range(ym_str)
+    start_s, end_s = start.isoformat(), end.isoformat()
+    c = get_conn()
+    try:
+        rev = df_query(c, """
+            SELECT d, cash, card, (cash+card) AS total
+            FROM daily_cash
+            WHERE d >= ? AND d < ?
+            ORDER BY d
+        """, (start_s, end_s))
+        exp = df_query(c, """
+            SELECT d, category, amount, pay_method, source, note
+            FROM expense
+            WHERE d >= ? AND d < ?
+            ORDER BY d
+        """, (start_s, end_s))
+        return rev, exp
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
 
 def is_month_locked(conn, ym_str: str) -> bool:
     row = conn.execute("SELECT locked FROM month_lock WHERE month=?", (ym_str,)).fetchone()
@@ -1471,25 +1500,12 @@ if st.session_state.get("_auto_generated_month") != selected_month:
 # --------- DASHBOARD ----------
 if page == "🏠 Dashboard":
     st.subheader(f"📌 {selected_month} Özeti")
-    start, end = month_range(selected_month)
-    start_s, end_s = start.isoformat(), end.isoformat()
 
-    rev = df_query(conn, """
-        SELECT d, cash, card, (cash+card) AS total
-        FROM daily_cash
-        WHERE d >= ? AND d < ?
-        ORDER BY d
-    """, (start_s, end_s))
+    db_mode = "postgres" if USE_POSTGRES else "sqlite"
+    rev, exp = load_dashboard_month_data(selected_month, db_mode)
     cash_sum = float(rev["cash"].sum()) if len(rev) else 0.0
     card_sum = float(rev["card"].sum()) if len(rev) else 0.0
     total_rev = float(rev["total"].sum()) if len(rev) else 0.0
-
-    exp = df_query(conn, """
-        SELECT d, category, amount, pay_method, source, note
-        FROM expense
-        WHERE d >= ? AND d < ?
-        ORDER BY d
-    """, (start_s, end_s))
     total_exp = float(exp["amount"].sum()) if len(exp) else 0.0
     net = total_rev - total_exp
 
