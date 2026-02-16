@@ -1591,7 +1591,7 @@ if page == "🏠 Dashboard":
             st.info("Bu ay için günlük kasa girişi yok.")
 
     def render_expense_breakdown():
-        st.markdown("### Gider Kırılımı (Kategori)")
+        st.markdown("### Gider")
         if len(exp):
             exp_disp = format_expense_for_display(exp)
             by_cat = exp_disp.groupby("Kategori", as_index=False)["Tutar"].sum().sort_values("Tutar", ascending=False)
