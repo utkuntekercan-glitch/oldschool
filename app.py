@@ -1654,56 +1654,6 @@ elif page == "💰 Günlük Kasa":
         st.session_state.cash_form_note = ""
     if "cash_form_last_loaded_date" not in st.session_state:
         st.session_state.cash_form_last_loaded_date = None
-    if "daily_cash_ocr_text_cache" not in st.session_state:
-        st.session_state.daily_cash_ocr_text_cache = ""
-    if "daily_cash_ocr_status" not in st.session_state:
-        st.session_state.daily_cash_ocr_status = ""
-
-    with st.expander("📷 Fotoğraftan Otomatik Oku (Banka / Visa)"):
-        ocr_ok, ocr_msg = is_ocr_available()
-        if not ocr_ok:
-            st.info(ocr_msg)
-            st.caption("OCR için Streamlit Secrets'e Google Vision bilgilerini ekle ve yeniden deploy et.")
-        else:
-            st.caption(ocr_msg)
-        upload = st.file_uploader("Rapor görseli yükle", type=["jpg", "jpeg", "png", "webp"], key="daily_cash_ocr_upload")
-        if upload is not None:
-            st.image(upload, caption="Yüklenen görsel", use_container_width=True)
-            if st.button("OCR ile Tutarları Oku", key="daily_cash_ocr_btn", use_container_width=True, disabled=not ocr_ok):
-                try:
-                    ocr_text = read_ocr_text(upload)
-                    st.session_state.daily_cash_ocr_text_cache = ocr_text
-                    bank_val, visa_val = extract_bank_visa_amounts(ocr_text)
-
-                    if bank_val is not None:
-                        st.session_state.cash_form_cash = float(bank_val)
-                    if visa_val is not None:
-                        st.session_state.cash_form_card = float(visa_val)
-                    if bank_val is not None or visa_val is not None:
-                        auto_note = f"OCR Banka: {tr_money(bank_val) if bank_val is not None else '-'} | OCR Visa: {tr_money(visa_val) if visa_val is not None else '-'}"
-                        st.session_state.cash_form_note = auto_note
-                        st.session_state.daily_cash_ocr_status = "OCR tamamlandı. Değerler forma yazıldı, kontrol edip kaydet."
-                    else:
-                        st.session_state.daily_cash_ocr_status = "Banka/Visa tutarı okunamadı. Görseli kırpıp tekrar dene."
-                except Exception as e:
-                    st.session_state.daily_cash_ocr_status = (
-                        f"OCR çalıştırılamadı: {e}. Google Vision secrets/izinlerini kontrol et."
-                    )
-    if st.session_state.daily_cash_ocr_status:
-        if st.session_state.daily_cash_ocr_status.startswith("OCR tamamlandı"):
-            st.success(st.session_state.daily_cash_ocr_status)
-        elif st.session_state.daily_cash_ocr_status.startswith("Banka/Visa"):
-            st.warning(st.session_state.daily_cash_ocr_status)
-        else:
-            st.error(st.session_state.daily_cash_ocr_status)
-    if st.session_state.daily_cash_ocr_text_cache:
-        st.text_area(
-            "OCR metni (kontrol amaçlı)",
-            value=st.session_state.daily_cash_ocr_text_cache,
-            height=120,
-            key="daily_cash_ocr_text",
-        )
-
     d = st.date_input("Tarih", key="cash_form_date")
 
     selected_cash_date = d.isoformat()
