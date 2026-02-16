@@ -1394,13 +1394,14 @@ if "_db_bootstrapped" not in st.session_state:
     init_db(conn)
     sync_postgres_sequences(conn)
     ensure_backup()
+    # Seed defaults only once per session; rerun cost is high on remote Postgres.
+    today = date.today()
+    default_month = ym(today)
+    seed_defaults_if_empty(conn, default_month)
     st.session_state["_db_bootstrapped"] = True
 
 today = date.today()
 default_month = ym(today)
-
-# Seed defaults on first run
-seed_defaults_if_empty(conn, default_month)
 
 with st.sidebar:
     st.header("Ay Seçimi")
@@ -1455,8 +1456,10 @@ with st.sidebar:
             st.session_state["undo_flash"] = (ok, msg)
             st.rerun()
 
-ensure_month_open(conn, selected_month)
-auto_generate_for_month(conn, selected_month)
+if st.session_state.get("_auto_generated_month") != selected_month:
+    ensure_month_open(conn, selected_month)
+    auto_generate_for_month(conn, selected_month)
+    st.session_state["_auto_generated_month"] = selected_month
 
 # --------- DASHBOARD ----------
 if page == "🏠 Dashboard":
