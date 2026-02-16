@@ -209,6 +209,13 @@ def init_db(conn: DBConn):
         opened_at TEXT NOT NULL
     );
     """)
+    # Query performance indexes (especially important on Postgres as data grows).
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_cash_d ON daily_cash(d);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_expense_d ON expense(d);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_expense_source_note_d ON expense(source, note, d);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_recurring_rule_active ON recurring_rule(active);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_loan_active ON loan(active);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_installment_plan_active ON installment_plan(active);")
     conn.commit()
 
 def sync_postgres_sequences(conn: DBConn):
