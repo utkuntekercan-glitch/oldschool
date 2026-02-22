@@ -1467,24 +1467,17 @@ def check_login():
         st.session_state.user_role = None
     if "auth_username" not in st.session_state:
         st.session_state.auth_username = None
-    if "_login_submit_by_enter" not in st.session_state:
-        st.session_state._login_submit_by_enter = False
-
     if st.session_state.authenticated:
         return True
 
     st.title("🔐 Giriş Yap")
-
-    def _mark_login_submit():
-        st.session_state._login_submit_by_enter = True
-
-    username = st.text_input("Kullanıcı Adı", key="login_username")
-    password = st.text_input("Şifre", type="password", key="login_password", on_change=_mark_login_submit)
-    clicked = st.button("Giriş", type="primary")
-    submitted = clicked or bool(st.session_state._login_submit_by_enter)
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("Kullanıcı Adı", key="login_username")
+        password = st.text_input("Şifre", type="password", key="login_password")
+        submitted = st.form_submit_button("Giriş", type="primary")
+    st.caption("Şifre alanındayken Enter ile giriş yapabilirsin.")
 
     if submitted:
-        st.session_state._login_submit_by_enter = False
         auth_conn = get_conn()
         try:
             init_db(auth_conn)
