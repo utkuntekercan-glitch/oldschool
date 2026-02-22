@@ -443,6 +443,18 @@ def _upsert_user_auth(conn, username: str, role: str, password: str):
         )
     conn.commit()
 
+def ensure_auth_schema(conn: DBConn):
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS app_user_auth (
+        username TEXT PRIMARY KEY,
+        role TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """)
+    conn.commit()
+
 def _seed_auth_users_if_missing(conn):
     users = [
         (str(st.secrets.get("APP_USER", "")).strip(), "admin", str(st.secrets.get("APP_PASSWORD", ""))),
@@ -1480,7 +1492,7 @@ def check_login():
     if submitted:
         auth_conn = get_conn()
         try:
-            init_db(auth_conn)
+            ensure_auth_schema(auth_conn)
             role = authenticate_user(auth_conn, username, password)
             if role in ("admin", "cash_only"):
                 st.session_state.authenticated = True
