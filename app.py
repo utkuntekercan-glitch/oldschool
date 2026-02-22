@@ -24,6 +24,7 @@ from datetime import date, datetime
 import re
 import unicodedata
 from html import escape
+import hashlib
 import pandas as pd
 
 import io
@@ -211,6 +212,15 @@ def init_db(conn: DBConn):
     CREATE TABLE IF NOT EXISTS month_close (
         month TEXT PRIMARY KEY, -- YYYY-MM
         opened_at TEXT NOT NULL
+    );
+    """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS app_user_auth (
+        username TEXT PRIMARY KEY,
+        role TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     );
     """)
     # Query performance indexes (especially important on Postgres as data grows).
@@ -404,6 +414,62 @@ def set_month_lock(conn, ym_str: str, locked: bool):
 def get_active_categories(conn) -> list[str]:
     rows = conn.execute("SELECT name FROM categories WHERE active=1 ORDER BY name").fetchall()
     return [r[0] for r in rows]
+
+def _hash_password(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password).encode("utf-8"),
+        str(salt).encode("utf-8"),
+        200_000,
+    ).hex()
+
+def _upsert_user_auth(conn, username: str, role: str, password: str):
+    username = str(username).strip()
+    role = str(role).strip()
+    if not username or not password:
+        return
+    salt = os.urandom(16).hex()
+    ph = _hash_password(password, salt)
+    existing = conn.execute("SELECT username FROM app_user_auth WHERE username=?", (username,)).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE app_user_auth SET role=?, password_hash=?, salt=?, updated_at=? WHERE username=?",
+            (role, ph, salt, datetime.now().isoformat(timespec="seconds"), username),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO app_user_auth(username, role, password_hash, salt, updated_at) VALUES(?,?,?,?,?)",
+            (username, role, ph, salt, datetime.now().isoformat(timespec="seconds")),
+        )
+    conn.commit()
+
+def _seed_auth_users_if_missing(conn):
+    users = [
+        (str(st.secrets.get("APP_USER", "")).strip(), "admin", str(st.secrets.get("APP_PASSWORD", ""))),
+        (str(st.secrets.get("CASH_USER", "")).strip(), "cash_only", str(st.secrets.get("CASH_PASSWORD", ""))),
+    ]
+    for username, role, password in users:
+        if not username or not password:
+            continue
+        exists = conn.execute("SELECT username FROM app_user_auth WHERE username=?", (username,)).fetchone()
+        if not exists:
+            _upsert_user_auth(conn, username, role, password)
+
+def authenticate_user(conn, username: str, password: str):
+    _seed_auth_users_if_missing(conn)
+    row = conn.execute(
+        "SELECT role, password_hash, salt FROM app_user_auth WHERE username=?",
+        (str(username).strip(),),
+    ).fetchone()
+    if not row:
+        return None
+    role, password_hash, salt = str(row[0]), str(row[1]), str(row[2])
+    if _hash_password(password, salt) == password_hash:
+        return role
+    return None
+
+def change_user_password(conn, username: str, role: str, new_password: str):
+    _upsert_user_auth(conn, username, role, new_password)
 
 def set_undo_action(action: dict):
     st.session_state["undo_action"] = action
@@ -1399,31 +1465,37 @@ def check_login():
         st.session_state.authenticated = False
     if "user_role" not in st.session_state:
         st.session_state.user_role = None
+    if "auth_username" not in st.session_state:
+        st.session_state.auth_username = None
 
     if st.session_state.authenticated:
         return True
 
     st.title("🔐 Giriş Yap")
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("Kullanıcı Adı")
+        password = st.text_input("Şifre", type="password")
+        submitted = st.form_submit_button("Giriş", type="primary")
 
-    username = st.text_input("Kullanıcı Adı")
-    password = st.text_input("Şifre", type="password")
-
-    if st.button("Giriş"):
-        admin_user = str(st.secrets.get("APP_USER", ""))
-        admin_pass = str(st.secrets.get("APP_PASSWORD", ""))
-        cash_user = str(st.secrets.get("CASH_USER", ""))
-        cash_pass = str(st.secrets.get("CASH_PASSWORD", ""))
-
-        if username == admin_user and password == admin_pass:
-            st.session_state.authenticated = True
-            st.session_state.user_role = "admin"
-            st.rerun()
-        elif cash_user and cash_pass and username == cash_user and password == cash_pass:
-            st.session_state.authenticated = True
-            st.session_state.user_role = "cash_only"
-            st.rerun()
-        else:
-            st.error("Hatalı kullanıcı adı veya şifre")
+    if submitted:
+        auth_conn = get_conn()
+        try:
+            init_db(auth_conn)
+            role = authenticate_user(auth_conn, username, password)
+            if role in ("admin", "cash_only"):
+                st.session_state.authenticated = True
+                st.session_state.user_role = role
+                st.session_state.auth_username = str(username).strip()
+                st.rerun()
+            else:
+                st.error("Hatalı kullanıcı adı veya şifre")
+        except Exception as e:
+            st.error(f"Giriş doğrulaması başarısız: {e}")
+        finally:
+            try:
+                auth_conn.close()
+            except Exception:
+                pass
 
     return False
 
@@ -2204,6 +2276,34 @@ elif page == "📤 Veri Dökümü":
 # --------- SETTINGS ----------
 elif page == "⚙️ Ayarlar":
     st.subheader("⚙️ Ayarlar")
+    st.markdown("### Şifre Değiştir")
+    current_user = str(st.session_state.get("auth_username", "")).strip()
+    current_role = str(st.session_state.get("user_role", "admin")).strip() or "admin"
+    if current_user:
+        with st.form("change_password_form"):
+            old_pw = st.text_input("Mevcut Şifre", type="password")
+            new_pw = st.text_input("Yeni Şifre", type="password")
+            new_pw2 = st.text_input("Yeni Şifre (Tekrar)", type="password")
+            pw_submit = st.form_submit_button("Şifreyi Güncelle", type="primary")
+
+        if pw_submit:
+            if not old_pw or not new_pw or not new_pw2:
+                st.warning("Tüm alanları doldur.")
+            elif new_pw != new_pw2:
+                st.warning("Yeni şifreler eşleşmiyor.")
+            elif len(new_pw) < 4:
+                st.warning("Yeni şifre en az 4 karakter olmalı.")
+            else:
+                role_ok = authenticate_user(conn, current_user, old_pw)
+                if role_ok is None:
+                    st.error("Mevcut şifre yanlış.")
+                else:
+                    change_user_password(conn, current_user, current_role, new_pw)
+                    st.success("Şifre güncellendi ✅")
+    else:
+        st.info("Aktif kullanıcı bulunamadı.")
+
+    st.divider()
     st.markdown("### Kategoriler")
     st.caption("Kategorileri buradan ekleyip/pasif yapabilirsin. Pasif olanlar gider ekleme ekranında görünmez.")
 
