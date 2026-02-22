@@ -1819,35 +1819,10 @@ elif page == "🧾 Gider Yönetimi":
 
     # Ekranda gösterilecek tablo (otomatik notları gizler, kategoriyi temizler, Türkçe kolonlar)
     exp_disp = format_expense_for_display(exp_raw)
-    st.markdown("#### Filtre ve Arama")
-    f1, f2, f3 = st.columns([1.4, 1, 1])
-    with f1:
-        q = st.text_input("Ara (kategori/not/tutar)", key="exp_filter_query")
-    with f2:
-        pay_options = sorted([p for p in exp_disp["Ödeme"].dropna().astype(str).unique().tolist()]) if "Ödeme" in exp_disp.columns else []
-        pay_sel = st.multiselect("Ödeme", pay_options, default=pay_options, key="exp_filter_pay")
-    with f3:
-        source_options = sorted([s for s in exp_disp["Kaynak"].dropna().astype(str).unique().tolist()]) if "Kaynak" in exp_disp.columns else []
-        source_sel = st.multiselect("Kaynak", source_options, default=source_options, key="exp_filter_source")
-
-    category_options = sorted([c for c in exp_disp["Kategori"].dropna().astype(str).unique().tolist()]) if "Kategori" in exp_disp.columns else []
-    cat_sel = st.multiselect("Kategori", category_options, default=category_options, key="exp_filter_category")
-
-    filtered = exp_disp.copy()
-    if len(category_options):
-        filtered = filtered[filtered["Kategori"].astype(str).isin(cat_sel)]
-    if len(pay_options):
-        filtered = filtered[filtered["Ödeme"].astype(str).isin(pay_sel)]
-    if len(source_options):
-        filtered = filtered[filtered["Kaynak"].astype(str).isin(source_sel)]
-    if q.strip():
-        row_text = filtered.fillna("").astype(str).agg(" | ".join, axis=1).str.lower()
-        filtered = filtered[row_text.str.contains(q.strip().lower(), regex=False)]
-    st.caption(f"Görüntülenen kayıt: {len(filtered)} / {len(exp_disp)}")
 
     if mobile_mode:
         render_mobile_cards(
-            filtered,
+            exp_disp,
             fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
             empty_text="Bu ay için gider kaydı yok.",
             amount_fields={"Tutar"},
@@ -1855,7 +1830,7 @@ elif page == "🧾 Gider Yönetimi":
             badge_fields={"Kategori", "Ödeme", "Kaynak"},
         )
     else:
-        st.dataframe(filtered, use_container_width=True, hide_index=True)
+        st.dataframe(exp_disp, use_container_width=True, hide_index=True)
 
     st.divider()
     st.markdown("### ✏️ Manuel Gider Düzenle / Sil")
