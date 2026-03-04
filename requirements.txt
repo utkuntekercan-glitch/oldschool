@@ -1,10 +1,7 @@
-streamlit==1.54.0
+﻿streamlit==1.54.0
 pandas==2.3.3
 matplotlib==3.10.8
 reportlab==4.4.10
 Pillow==11.1.0
 google-cloud-vision
-psycopg2-binary
-psycopg[binary]
-pg8000
-
+psycopg[binary]==3.2.3
