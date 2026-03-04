@@ -1487,7 +1487,6 @@ def check_login():
         username = st.text_input("Kullanıcı Adı", key="login_username")
         password = st.text_input("Şifre", type="password", key="login_password")
         submitted = st.form_submit_button("Giriş", type="primary")
-    st.caption("Şifre alanındayken Enter ile giriş yapabilirsin.")
 
     if submitted:
         auth_conn = get_conn()
@@ -1585,7 +1584,6 @@ with st.sidebar:
                 st.warning(f"Geçersiz ay formatı: '{manual_month}'.")
 
     selected_month = st.session_state.selected_month_ui.strip()
-    st.caption("Bu ay üzerinden raporlar gösterilir.")
     st.divider()
     if user_role == "admin":
         locked_now = is_month_locked(conn, selected_month)
@@ -1599,7 +1597,7 @@ with st.sidebar:
             st.success("Bu ayin otomatik giderleri yenilendi.")
             st.rerun()
     else:
-        st.caption("Yetki: Sadece Günlük Kasa")
+        pass
     st.divider()
     st.header("Menü")
     if user_role == "admin":
@@ -2029,7 +2027,6 @@ elif page == "🧾 Gider Yönetimi":
 # --------- RECURRING RULES ----------
 elif page == "🔁 Sabitler (Kurallar)":
     st.subheader("🔁 Sabit Gider Kuralları")
-    st.caption("Her ay otomatik gider kaydı oluşturur. Bu sürüm ilk açılışta senin sabitlerini otomatik ekler.")
     with st.form("rule_form"):
         name = st.text_input("Kural Adı (örn: Kira)")
         category = st.text_input("Kategori (örn: Kira)")
@@ -2107,7 +2104,6 @@ elif page == "🔁 Sabitler (Kurallar)":
 # --------- LOANS ----------
 elif page == "🏦 Krediler":
     st.subheader("🏦 Krediler (Belirli süreli)")
-    st.caption("Her ayın 1'inde otomatik gider kaydı düşer. İlk açılışta Araba/Okul kredisi otomatik eklenir.")
     with st.form("loan_form"):
         name = st.text_input("Kredi Adı")
         monthly = st.number_input("Aylık Taksit (₺)", min_value=0.0, step=100.0, format="%.2f")
@@ -2186,7 +2182,6 @@ elif page == "🏦 Krediler":
 # --------- INSTALLMENTS ----------
 elif page == "💳 Kart Taksitleri":
     st.subheader("💳 Kart Taksitli Alımlar")
-    st.caption("Toplam tutar / taksit sayısı girilir. Sistem her ay eşit payı otomatik gider yazar. İlk açılışta 36.000/6 planı otomatik eklenir.")
     with st.form("inst_form"):
         name = st.text_input("Plan Adı (örn: Malzeme alımı)")
         total = st.number_input("Toplam Tutar (₺)", min_value=0.0, step=100.0, format="%.2f")
@@ -2334,7 +2329,6 @@ elif page == "⚙️ Ayarlar":
 
     st.divider()
     st.markdown("### Kategoriler")
-    st.caption("Kategorileri buradan ekleyip/pasif yapabilirsin. Pasif olanlar gider ekleme ekranında görünmez.")
 
     cats = df_query(conn, "SELECT name AS Kategori, active AS Aktif FROM categories ORDER BY name")
     edited = st.data_editor(
@@ -2370,4 +2364,3 @@ elif page == "⚙️ Ayarlar":
         st.success("Yedek alındı ✅ (backups/ klasörüne)")
 
 
-st.caption("FINAL v4 • Soft Professional tema • PDF rapor (ay/yıl) • kategori yönetimi • ay kilitleme • otomatik yedekleme.")
