@@ -387,13 +387,13 @@ def load_dashboard_month_data(ym_str: str, db_mode: str):
     c = get_conn()
     try:
         rev = df_query(c, """
-            SELECT d, cash, card, (cash+card) AS total
+            SELECT d, cash, card, (cash+card) AS total, note
             FROM daily_cash
             WHERE d >= ? AND d < ?
             ORDER BY d
         """, (start_s, end_s))
         exp = df_query(c, """
-            SELECT d, category, amount, pay_method, source, note
+            SELECT id, d, category, amount, pay_method, source, note
             FROM expense
             WHERE d >= ? AND d < ?
             ORDER BY d
@@ -1605,6 +1605,7 @@ with st.sidebar:
                 st.warning(f"Geçersiz ay formatı: '{manual_month}'.")
 
     selected_month = st.session_state.selected_month_ui.strip()
+    db_mode = "postgres" if USE_POSTGRES else "sqlite"
     st.divider()
     if user_role == "admin":
         locked_now = is_month_locked(conn, selected_month)
@@ -1647,7 +1648,6 @@ if st.session_state.get("_auto_generated_month") != selected_month:
 if page == "🏠 Dashboard":
     st.subheader(f"📌 {selected_month} Özeti")
 
-    db_mode = "postgres" if USE_POSTGRES else "sqlite"
     rev, exp = load_dashboard_month_data(selected_month, db_mode)
     cash_sum = float(rev["cash"].sum()) if len(rev) else 0.0
     card_sum = float(rev["card"].sum()) if len(rev) else 0.0
@@ -1827,13 +1827,13 @@ elif page == "💰 Günlük Kasa":
 
     st.divider()
     st.markdown("### Seçili Ay Kayıtları")
-    start, end = month_range(selected_month)
-    rev = df_query(conn, """
-        SELECT d AS Tarih, cash AS Nakit, card AS Kart, (cash+card) AS Toplam, note AS Notlar
-        FROM daily_cash
-        WHERE d >= ? AND d < ?
-        ORDER BY d DESC
-    """, (start.isoformat(), end.isoformat()))
+    rev_raw, _ = load_dashboard_month_data(selected_month, db_mode)
+    if len(rev_raw):
+        rev = rev_raw.rename(
+            columns={"d": "Tarih", "cash": "Nakit", "card": "Kart", "total": "Toplam", "note": "Notlar"}
+        ).sort_values("Tarih", ascending=False, kind="stable")
+    else:
+        rev = pd.DataFrame(columns=["Tarih", "Nakit", "Kart", "Toplam", "Notlar"])
     if mobile_mode:
         render_mobile_cards(
             rev,
@@ -1933,14 +1933,8 @@ elif page == "🧾 Gider Yönetimi":
 
     st.divider()
     st.markdown("### Seçili Ay Giderleri")
-    start, end = month_range(selected_month)
-
-    exp_raw = df_query(conn, """
-        SELECT id, d, category, amount, pay_method, source, note
-        FROM expense
-        WHERE d >= ? AND d < ?
-        ORDER BY d DESC
-    """, (start.isoformat(), end.isoformat()))
+    _, exp_month = load_dashboard_month_data(selected_month, db_mode)
+    exp_raw = exp_month.sort_values("d", ascending=False, kind="stable").reset_index(drop=True) if len(exp_month) else exp_month
 
     # Ekranda gösterilecek tablo (otomatik notları gizler, kategoriyi temizler, Türkçe kolonlar)
     exp_disp = format_expense_for_display(exp_raw)
@@ -1982,11 +1976,12 @@ elif page == "🧾 Gider Yönetimi":
 
         # En üstte en yeni gözüksün
         manual = manual.reset_index(drop=True)
+        manual_label_map = dict(zip(manual["id"].tolist(), manual["label"].tolist()))
 
         sel_id = st.selectbox(
             "Düzenlenecek gideri seç",
             options=manual["id"].tolist(),
-            format_func=lambda _id: manual.loc[manual["id"] == _id, "label"].iloc[0],
+            format_func=lambda _id: manual_label_map.get(_id, f"#{_id}"),
         )
 
         row = manual.loc[manual["id"] == sel_id].iloc[0]
@@ -2087,10 +2082,11 @@ elif page == "🔁 Sabitler (Kurallar)":
     if len(raw_rules) == 0:
         st.info("Düzenlenecek kural yok.")
     else:
+        rule_name_map = dict(zip(raw_rules["id"].tolist(), raw_rules["name"].astype(str).tolist()))
         sel = st.selectbox(
             "Düzenlenecek kuralı seç",
             raw_rules["id"].tolist(),
-            format_func=lambda rid: f"#{rid} • {raw_rules.loc[raw_rules['id']==rid, 'name'].iloc[0]}",
+            format_func=lambda rid: f"#{rid} • {rule_name_map.get(rid, '')}",
             key="rule_edit_select",
         )
         r = raw_rules.loc[raw_rules["id"] == sel].iloc[0]
@@ -2169,10 +2165,11 @@ elif page == "🏦 Krediler":
     if len(raw_loans) == 0:
         st.info("Düzenlenecek kredi yok.")
     else:
+        loan_name_map = dict(zip(raw_loans["id"].tolist(), raw_loans["name"].astype(str).tolist()))
         sel = st.selectbox(
             "Düzenlenecek krediyi seç",
             raw_loans["id"].tolist(),
-            format_func=lambda lid: f"#{lid} • {raw_loans.loc[raw_loans['id']==lid, 'name'].iloc[0]}",
+            format_func=lambda lid: f"#{lid} • {loan_name_map.get(lid, '')}",
             key="loan_edit_select",
         )
         r = raw_loans.loc[raw_loans["id"] == sel].iloc[0]
@@ -2255,10 +2252,11 @@ elif page == "💳 Kart Taksitleri":
     if len(raw_plans) == 0:
         st.info("Düzenlenecek taksit planı yok.")
     else:
+        plan_name_map = dict(zip(raw_plans["id"].tolist(), raw_plans["name"].astype(str).tolist()))
         sel = st.selectbox(
             "Düzenlenecek taksit planını seç",
             raw_plans["id"].tolist(),
-            format_func=lambda pid: f"#{pid} • {raw_plans.loc[raw_plans['id']==pid, 'name'].iloc[0]}",
+            format_func=lambda pid: f"#{pid} • {plan_name_map.get(pid, '')}",
             key="plan_edit_select",
         )
         r = raw_plans.loc[raw_plans["id"] == sel].iloc[0]
@@ -2312,21 +2310,13 @@ elif page == "💳 Kart Taksitleri":
 # --------- EXPORT ----------
 elif page == "📤 Veri Dökümü":
     st.subheader("📤 Veri Dökümü (CSV)")
-    start, end = month_range(selected_month)
-
-    rev = df_query(conn, """
-        SELECT d AS Tarih, cash AS NakitGelir, card AS KartGelir, (cash+card) AS ToplamGelir, note AS Notlar
-        FROM daily_cash
-        WHERE d >= ? AND d < ?
-        ORDER BY d
-    """, (start.isoformat(), end.isoformat()))
-
-    exp = df_query(conn, """
-        SELECT d AS Tarih, category AS Kategori, amount AS Tutar, pay_method AS Odeme, source AS Kaynak, note AS Notlar
-        FROM expense
-        WHERE d >= ? AND d < ?
-        ORDER BY d
-    """, (start.isoformat(), end.isoformat()))
+    rev_raw, exp_raw = load_dashboard_month_data(selected_month, db_mode)
+    rev = rev_raw.rename(
+        columns={"d": "Tarih", "cash": "NakitGelir", "card": "KartGelir", "total": "ToplamGelir", "note": "Notlar"}
+    )
+    exp = exp_raw.rename(
+        columns={"d": "Tarih", "category": "Kategori", "amount": "Tutar", "pay_method": "Odeme", "source": "Kaynak", "note": "Notlar"}
+    )
 
     st.markdown("### Gelir (Günlük Kasa)")
     st.dataframe(rev, use_container_width=True, hide_index=True)
