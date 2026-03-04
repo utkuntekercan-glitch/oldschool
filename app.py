@@ -333,7 +333,10 @@ def auto_generate_for_month(conn, ym_str: str):
     # Loans
     loans = conn.execute("SELECT id, name, monthly_amount, start_month, months_total, pay_method FROM loan WHERE active=1").fetchall()
     for lid, name, monthly, start_month, months_total, pm in loans:
-        sy, sm = parse_ym(start_month)
+        start_month_str = str(start_month).strip()
+        if not is_valid_ym(start_month_str):
+            continue
+        sy, sm = parse_ym(start_month_str)
         cy, cm = parse_ym(ym_str)
         idx = (cy - sy) * 12 + (cm - sm)  # 0-based
         if 0 <= idx < months_total:
@@ -343,7 +346,10 @@ def auto_generate_for_month(conn, ym_str: str):
     # Installments
     plans = conn.execute("SELECT id, name, total_amount, months_total, start_month, pay_method FROM installment_plan WHERE active=1").fetchall()
     for pid, name, total, months_total, start_month, pm in plans:
-        sy, sm = parse_ym(start_month)
+        start_month_str = str(start_month).strip()
+        if not is_valid_ym(start_month_str):
+            continue
+        sy, sm = parse_ym(start_month_str)
         cy, cm = parse_ym(ym_str)
         idx = (cy - sy) * 12 + (cm - sm)
         if 0 <= idx < months_total:
@@ -402,6 +408,17 @@ def load_dashboard_month_data(ym_str: str, db_mode: str):
 def is_month_locked(conn, ym_str: str) -> bool:
     row = conn.execute("SELECT locked FROM month_lock WHERE month=?", (ym_str,)).fetchone()
     return bool(row and int(row[0]) == 1)
+
+def month_from_iso_date(date_str: str) -> str | None:
+    try:
+        d = date.fromisoformat(str(date_str))
+        return ym(d)
+    except Exception:
+        return None
+
+def is_date_locked(conn, iso_date: str) -> bool:
+    month_key = month_from_iso_date(iso_date)
+    return bool(month_key and is_month_locked(conn, month_key))
 
 def set_month_lock(conn, ym_str: str, locked: bool):
     conn.execute(
@@ -1514,8 +1531,12 @@ def check_login():
 if not check_login():
     st.stop()
 if st.session_state.get("user_role") not in ("admin", "cash_only"):
-    st.session_state.user_role = "admin"
-user_role = st.session_state.get("user_role", "admin")
+    st.session_state.authenticated = False
+    st.session_state.user_role = None
+    st.session_state.auth_username = None
+    st.error("Oturum rolü doğrulanamadı. Lütfen tekrar giriş yapın.")
+    st.stop()
+user_role = st.session_state.get("user_role")
 
 # ---------- END LOGIN ----------
 st.markdown(SOFT_CSS, unsafe_allow_html=True)
@@ -1781,7 +1802,9 @@ elif page == "💰 Günlük Kasa":
     note = st.text_input("Not (opsiyonel)", key="cash_form_note")
     st.caption(f"Toplam: {tr_money(float(cash) + float(card))}")
 
-    locked = is_month_locked(conn, selected_month)
+    locked = is_date_locked(conn, selected_cash_date)
+    if locked:
+        st.warning("Seçili tarihin ayı kilitli. Kayıt ekleme/düzenleme kapalı.")
 
     if st.button("Kaydet / Güncelle", type="primary", disabled=locked):
         prev = conn.execute("SELECT d, cash, card, note FROM daily_cash WHERE d=?", (d.isoformat(),)).fetchone()
@@ -1873,10 +1896,13 @@ elif page == "🧾 Gider Yönetimi":
     pay_method = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"], key="exp_form_pay_method")
     note = st.text_input("Not (opsiyonel)", key="exp_form_note")
 
-    locked = is_month_locked(conn, selected_month)
+    expense_date = d.isoformat()
+    locked = is_date_locked(conn, expense_date)
+    if locked:
+        st.warning("Seçili tarihin ayı kilitli. Manuel gider ekleme kapalı.")
 
     if st.button("Gider Kaydet", type="primary", disabled=locked):
-        params = (d.isoformat(), category, float(amount), pay_method, note.strip() or None)
+        params = (expense_date, category, float(amount), pay_method, note.strip() or None)
         if conn.driver == "postgres":
             cur = conn.execute(
                 """
@@ -1964,6 +1990,9 @@ elif page == "🧾 Gider Yönetimi":
         )
 
         row = manual.loc[manual["id"] == sel_id].iloc[0]
+        row_locked = is_date_locked(conn, str(row["d"]))
+        if row_locked:
+            st.warning("Bu giderin ayı kilitli. Düzenleme ve silme kapalı.")
 
         # Form
         with st.form("edit_manual_expense"):
@@ -1974,54 +2003,60 @@ elif page == "🧾 Gider Yönetimi":
             enote = st.text_input("Not (düzenle)", value=str(row["note"]) if pd.notna(row["note"]) else "")
 
             if mobile_mode:
-                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = st.form_submit_button("Sil", type="secondary")
+                save = st.form_submit_button("Kaydet (Güncelle)", type="primary", disabled=row_locked)
+                delete = st.form_submit_button("Sil", type="secondary", disabled=row_locked)
             else:
                 c1, c2 = st.columns(2)
-                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = c2.form_submit_button("Sil", type="secondary")
+                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary", disabled=row_locked)
+                delete = c2.form_submit_button("Sil", type="secondary", disabled=row_locked)
 
         if save:
-            old_payload = {
-                "id": int(row["id"]),
-                "d": str(row["d"]),
-                "category": str(row["category"]),
-                "amount": float(row["amount"]),
-                "pay_method": str(row["pay_method"]),
-                "note": None if pd.isna(row["note"]) else str(row["note"]),
-            }
-            conn.execute(
-                "UPDATE expense SET d=?, category=?, amount=?, pay_method=?, note=? WHERE id=? AND source='manual'",
-                (ed.isoformat(), ecat.strip(), float(eamount), epm, enote.strip() or None, int(sel_id)),
-            )
-            conn.commit()
-            set_undo_action({
-                "type": "expense_update",
-                "old": old_payload,
-                "label": f"Gider Güncelle (#{int(sel_id)})",
-            })
-            st.success("Gider güncellendi ✅")
-            st.rerun()
+            if is_date_locked(conn, ed.isoformat()):
+                st.error("Seçilen tarih kilitli bir ayda. Güncelleme yapılamaz.")
+            else:
+                old_payload = {
+                    "id": int(row["id"]),
+                    "d": str(row["d"]),
+                    "category": str(row["category"]),
+                    "amount": float(row["amount"]),
+                    "pay_method": str(row["pay_method"]),
+                    "note": None if pd.isna(row["note"]) else str(row["note"]),
+                }
+                conn.execute(
+                    "UPDATE expense SET d=?, category=?, amount=?, pay_method=?, note=? WHERE id=? AND source='manual'",
+                    (ed.isoformat(), ecat.strip(), float(eamount), epm, enote.strip() or None, int(sel_id)),
+                )
+                conn.commit()
+                set_undo_action({
+                    "type": "expense_update",
+                    "old": old_payload,
+                    "label": f"Gider Güncelle (#{int(sel_id)})",
+                })
+                st.success("Gider güncellendi ✅")
+                st.rerun()
 
         if delete:
-            row_payload = {
-                "id": int(row["id"]),
-                "d": str(row["d"]),
-                "category": str(row["category"]),
-                "amount": float(row["amount"]),
-                "pay_method": str(row["pay_method"]),
-                "note": None if pd.isna(row["note"]) else str(row["note"]),
-                "source": str(row["source"]),
-            }
-            conn.execute("DELETE FROM expense WHERE id=? AND source='manual'", (int(sel_id),))
-            conn.commit()
-            set_undo_action({
-                "type": "expense_delete",
-                "row": row_payload,
-                "label": f"Gider Sil (#{int(sel_id)})",
-            })
-            st.success("Gider silindi ✅")
-            st.rerun()
+            if is_date_locked(conn, str(row["d"])):
+                st.error("Kilitli aydaki kayıt silinemez.")
+            else:
+                row_payload = {
+                    "id": int(row["id"]),
+                    "d": str(row["d"]),
+                    "category": str(row["category"]),
+                    "amount": float(row["amount"]),
+                    "pay_method": str(row["pay_method"]),
+                    "note": None if pd.isna(row["note"]) else str(row["note"]),
+                    "source": str(row["source"]),
+                }
+                conn.execute("DELETE FROM expense WHERE id=? AND source='manual'", (int(sel_id),))
+                conn.commit()
+                set_undo_action({
+                    "type": "expense_delete",
+                    "row": row_payload,
+                    "label": f"Gider Sil (#{int(sel_id)})",
+                })
+                st.success("Gider silindi ✅")
+                st.rerun()
 
 
 # --------- RECURRING RULES ----------
@@ -2065,7 +2100,8 @@ elif page == "🔁 Sabitler (Kurallar)":
             e_cat  = st.text_input("Kategori", value=str(r["category"]), key="rule_edit_cat")
             e_amt  = st.number_input("Aylık Tutar (₺)", min_value=0.0, step=100.0, format="%.2f", value=float(r["amount"]), key="rule_edit_amt")
             e_dom  = st.number_input("Ayın Kaçı", min_value=1, max_value=28, step=1, value=int(r["day_of_month"]), key="rule_edit_dom")
-            e_pm   = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"], index=["Nakit","Kart","Havale"].index(str(r["pay_method"])), key="rule_edit_pm")
+            pm_opts = ["Nakit", "Kart", "Havale"]
+            e_pm   = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])) if str(r["pay_method"]) in pm_opts else 0, key="rule_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="rule_edit_active")
 
             if mobile_mode:
@@ -2112,11 +2148,15 @@ elif page == "🏦 Krediler":
         pay_method = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"])
         submitted = st.form_submit_button("Kredi Ekle", type="primary")
     if submitted:
-        conn.execute("INSERT INTO loan(name, monthly_amount, start_month, months_total, pay_method, active) VALUES(?,?,?,?,?,1)",
-                     (name.strip(), float(monthly), start_month.strip(), int(months_total), pay_method))
-        conn.commit()
-        st.success("Kredi eklendi ✅")
-        auto_generate_for_month(conn, selected_month)
+        start_month_clean = start_month.strip()
+        if not is_valid_ym(start_month_clean):
+            st.error("Başlangıç ayı formatı geçersiz. YYYY-AA kullanın (örn: 2026-03).")
+        else:
+            conn.execute("INSERT INTO loan(name, monthly_amount, start_month, months_total, pay_method, active) VALUES(?,?,?,?,?,1)",
+                         (name.strip(), float(monthly), start_month_clean, int(months_total), pay_method))
+            conn.commit()
+            st.success("Kredi eklendi ✅")
+            auto_generate_for_month(conn, selected_month)
 
     st.divider()
     loans = df_query(conn, "SELECT id, name AS Ad, monthly_amount AS Aylik, start_month AS Baslangic, months_total AS Ay, pay_method AS Odeme, active AS Aktif FROM loan ORDER BY id DESC")
@@ -2143,7 +2183,7 @@ elif page == "🏦 Krediler":
             e_start = st.text_input("Başlangıç Ayı (YYYY-AA)", value=str(r["start_month"]), key="loan_edit_start")
             e_total = st.number_input("Toplam Ay", min_value=1, max_value=240, step=1, value=int(r["months_total"]), key="loan_edit_total")
             pm_opts = ["Nakit", "Kart", "Havale"]
-            e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="loan_edit_pm")
+            e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])) if str(r["pay_method"]) in pm_opts else 0, key="loan_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="loan_edit_active")
 
             if mobile_mode:
@@ -2157,14 +2197,18 @@ elif page == "🏦 Krediler":
                 toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
 
         if save:
-            conn.execute(
-                "UPDATE loan SET name=?, monthly_amount=?, start_month=?, months_total=?, pay_method=?, active=? WHERE id=?",
-                (e_name.strip(), float(e_monthly), e_start.strip(), int(e_total), e_pm, 1 if e_active else 0, int(sel))
-            )
-            conn.commit()
-            auto_generate_for_month(conn, selected_month)
-            st.success("Kredi güncellendi ✅")
-            st.rerun()
+            e_start_clean = e_start.strip()
+            if not is_valid_ym(e_start_clean):
+                st.error("Başlangıç ayı formatı geçersiz. YYYY-AA kullanın (örn: 2026-03).")
+            else:
+                conn.execute(
+                    "UPDATE loan SET name=?, monthly_amount=?, start_month=?, months_total=?, pay_method=?, active=? WHERE id=?",
+                    (e_name.strip(), float(e_monthly), e_start_clean, int(e_total), e_pm, 1 if e_active else 0, int(sel))
+                )
+                conn.commit()
+                auto_generate_for_month(conn, selected_month)
+                st.success("Kredi güncellendi ✅")
+                st.rerun()
 
         if toggle:
             conn.execute("UPDATE loan SET active=? WHERE id=?", (0 if bool(int(r['active'])) else 1, int(sel)))
@@ -2190,11 +2234,15 @@ elif page == "💳 Kart Taksitleri":
         pay_method = st.selectbox("Ödeme Tipi", ["Kart", "Nakit", "Havale"], index=0)
         submitted = st.form_submit_button("Plan Ekle", type="primary")
     if submitted:
-        conn.execute("INSERT INTO installment_plan(name, total_amount, months_total, start_month, pay_method, active) VALUES(?,?,?,?,?,1)",
-                     (name.strip(), float(total), int(months_total), start_month.strip(), pay_method))
-        conn.commit()
-        st.success("Taksit planı eklendi ✅")
-        auto_generate_for_month(conn, selected_month)
+        start_month_clean = start_month.strip()
+        if not is_valid_ym(start_month_clean):
+            st.error("Başlangıç ayı formatı geçersiz. YYYY-AA kullanın (örn: 2026-03).")
+        else:
+            conn.execute("INSERT INTO installment_plan(name, total_amount, months_total, start_month, pay_method, active) VALUES(?,?,?,?,?,1)",
+                         (name.strip(), float(total), int(months_total), start_month_clean, pay_method))
+            conn.commit()
+            st.success("Taksit planı eklendi ✅")
+            auto_generate_for_month(conn, selected_month)
 
     st.divider()
     plans = df_query(conn, "SELECT id, name AS Ad, total_amount AS Toplam, months_total AS Ay, start_month AS Baslangic, pay_method AS Odeme, active AS Aktif FROM installment_plan ORDER BY id DESC")
@@ -2221,7 +2269,7 @@ elif page == "💳 Kart Taksitleri":
             e_months = st.number_input("Taksit Sayısı (Ay)", min_value=1, max_value=60, step=1, value=int(r["months_total"]), key="plan_edit_months")
             e_start = st.text_input("Başlangıç Ayı (YYYY-AA)", value=str(r["start_month"]), key="plan_edit_start")
             pm_opts = ["Kart", "Nakit", "Havale"]
-            e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="plan_edit_pm")
+            e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])) if str(r["pay_method"]) in pm_opts else 0, key="plan_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="plan_edit_active")
 
             if mobile_mode:
@@ -2235,14 +2283,18 @@ elif page == "💳 Kart Taksitleri":
                 toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
 
         if save:
-            conn.execute(
-                "UPDATE installment_plan SET name=?, total_amount=?, months_total=?, start_month=?, pay_method=?, active=? WHERE id=?",
-                (e_name.strip(), float(e_total), int(e_months), e_start.strip(), e_pm, 1 if e_active else 0, int(sel))
-            )
-            conn.commit()
-            auto_generate_for_month(conn, selected_month)
-            st.success("Taksit planı güncellendi ✅")
-            st.rerun()
+            e_start_clean = e_start.strip()
+            if not is_valid_ym(e_start_clean):
+                st.error("Başlangıç ayı formatı geçersiz. YYYY-AA kullanın (örn: 2026-03).")
+            else:
+                conn.execute(
+                    "UPDATE installment_plan SET name=?, total_amount=?, months_total=?, start_month=?, pay_method=?, active=? WHERE id=?",
+                    (e_name.strip(), float(e_total), int(e_months), e_start_clean, e_pm, 1 if e_active else 0, int(sel))
+                )
+                conn.commit()
+                auto_generate_for_month(conn, selected_month)
+                st.success("Taksit planı güncellendi ✅")
+                st.rerun()
 
         if toggle:
             conn.execute("UPDATE installment_plan SET active=? WHERE id=?", (0 if bool(int(r['active'])) else 1, int(sel)))
@@ -2302,7 +2354,7 @@ elif page == "⚙️ Ayarlar":
     st.subheader("⚙️ Ayarlar")
     st.markdown("### Şifre Değiştir")
     current_user = str(st.session_state.get("auth_username", "")).strip()
-    current_role = str(st.session_state.get("user_role", "admin")).strip() or "admin"
+    current_role = str(st.session_state.get("user_role", "")).strip()
     if current_user:
         with st.form("change_password_form"):
             old_pw = st.text_input("Mevcut Şifre", type="password")
