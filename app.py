@@ -1875,16 +1875,31 @@ elif page == "🧾 Gider Yönetimi":
     locked = is_month_locked(conn, selected_month)
 
     if st.button("Gider Kaydet", type="primary", disabled=locked):
-        cur = conn.execute(
-            "INSERT INTO expense(d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?, 'manual')",
-            (d.isoformat(), category, float(amount), pay_method, note.strip() or None),
-        )
+        params = (d.isoformat(), category, float(amount), pay_method, note.strip() or None)
+        if conn.driver == "postgres":
+            cur = conn.execute(
+                """
+                INSERT INTO expense(d, category, amount, pay_method, note, source)
+                VALUES(?,?,?,?,?, 'manual')
+                RETURNING id
+                """,
+                params,
+            )
+            row = cur.fetchone()
+            new_id = int(row[0]) if row else None
+        else:
+            cur = conn.execute(
+                "INSERT INTO expense(d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?, 'manual')",
+                params,
+            )
+            new_id = int(cur.lastrowid)
         conn.commit()
-        set_undo_action({
-            "type": "expense_add",
-            "id": int(cur.lastrowid),
-            "label": f"Gider Ekle ({d.isoformat()} | {category})",
-        })
+        if new_id is not None:
+            set_undo_action({
+                "type": "expense_add",
+                "id": new_id,
+                "label": f"Gider Ekle ({d.isoformat()} | {category})",
+            })
         st.session_state.exp_form_amount = 0.0
         st.session_state.exp_form_note = ""
         st.success("Gider eklendi ✅")
