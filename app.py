@@ -489,27 +489,27 @@ def set_undo_action(action: dict):
 def apply_undo_action(conn) -> tuple[bool, str]:
     action = st.session_state.get("undo_action")
     if not action:
-        return False, "Geri alınacak işlem yok."
+        return False, "Geri alÄ±nacak iÅŸlem yok."
 
     t = action.get("type")
     try:
         if t == "expense_add":
             conn.execute("DELETE FROM expense WHERE id=?", (int(action["id"]),))
-            msg = "Eklenen gider geri alındı."
+            msg = "Eklenen gider geri alÄ±ndÄ±."
         elif t == "expense_update":
             old = action["old"]
             conn.execute(
                 "UPDATE expense SET d=?, category=?, amount=?, pay_method=?, note=? WHERE id=? AND source='manual'",
                 (old["d"], old["category"], float(old["amount"]), old["pay_method"], old["note"], int(old["id"])),
             )
-            msg = "Gider güncellemesi geri alındı."
+            msg = "Gider gÃ¼ncellemesi geri alÄ±ndÄ±."
         elif t == "expense_delete":
             row = action["row"]
             conn.execute(
                 "INSERT INTO expense(id, d, category, amount, pay_method, note, source) VALUES(?,?,?,?,?,?,?)",
                 (int(row["id"]), row["d"], row["category"], float(row["amount"]), row["pay_method"], row["note"], row.get("source", "manual")),
             )
-            msg = "Silinen gider geri yüklendi."
+            msg = "Silinen gider geri yÃ¼klendi."
         elif t == "daily_cash_upsert":
             d = action["d"]
             prev = action.get("previous")
@@ -521,18 +521,18 @@ def apply_undo_action(conn) -> tuple[bool, str]:
                     VALUES(?,?,?,?)
                     ON CONFLICT(d) DO UPDATE SET cash=excluded.cash, card=excluded.card, note=excluded.note
                 """, (prev["d"], float(prev["cash"]), float(prev["card"]), prev["note"]))
-            msg = "Günlük kasa işlemi geri alındı."
+            msg = "GÃ¼nlÃ¼k kasa iÅŸlemi geri alÄ±ndÄ±."
         else:
-            return False, "Bilinmeyen işlem tipi."
+            return False, "Bilinmeyen iÅŸlem tipi."
         conn.commit()
         st.session_state.pop("undo_action", None)
         return True, msg
     except Exception as e:
-        return False, f"Geri alma başarısız: {e}"
+        return False, f"Geri alma baÅŸarÄ±sÄ±z: {e}"
 
 
 def seed_defaults_if_empty(conn, start_month: str):
-    """Program ilk açıldığında senin verdiğin sabitleri/kredileri/taksitleri otomatik ekler (sadece DB boşsa)."""
+    """Program ilk aÃ§Ä±ldÄ±ÄŸÄ±nda senin verdiÄŸin sabitleri/kredileri/taksitleri otomatik ekler (sadece DB boÅŸsa)."""
     rules_count = conn.execute("SELECT COUNT(*) FROM recurring_rule").fetchone()[0]
     loans_count = conn.execute("SELECT COUNT(*) FROM loan").fetchone()[0]
     inst_count  = conn.execute("SELECT COUNT(*) FROM installment_plan").fetchone()[0]
@@ -541,23 +541,23 @@ def seed_defaults_if_empty(conn, start_month: str):
     cat_count = conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
     if cat_count == 0:
         default_cats = [
-            ("Elektrik",1),("Gaz",1),("Su",1),("Alışveriş",1),("SSK+Vergi",1),
-            ("Gündüz Maaş",1),("Maaş",1),("Kira",1),("İnternet",1),("Muhasebe",1),
-            ("Sigorta",1),("Alarm",1),("Kredi",1),("Kart Taksit",1),("Diğer",1)
+            ("Elektrik",1),("Gaz",1),("Su",1),("AlÄ±ÅŸveriÅŸ",1),("SSK+Vergi",1),
+            ("GÃ¼ndÃ¼z MaaÅŸ",1),("MaaÅŸ",1),("Kira",1),("Ä°nternet",1),("Muhasebe",1),
+            ("Sigorta",1),("Alarm",1),("Kredi",1),("Kart Taksit",1),("DiÄŸer",1)
         ]
         conn.executemany("INSERT INTO categories(name, active) VALUES(?,?) ON CONFLICT(name) DO NOTHING", default_cats)
         conn.commit()
 
 
-    # Sadece tamamen boş başlangıçta seed edelim:
+    # Sadece tamamen boÅŸ baÅŸlangÄ±Ã§ta seed edelim:
     if rules_count == 0:
         defaults = [
             ("Kira", "Kira", 110000, 1, "Havale"),
-            ("İnternet", "İnternet", 12000, 1, "Havale"),
+            ("Ä°nternet", "Ä°nternet", 12000, 1, "Havale"),
             ("Muhasebe", "Muhasebe", 12000, 15, "Havale"),
             ("Sigorta", "Sigorta", 400, 15, "Havale"),
             ("Alarm", "Alarm", 500, 15, "Havale"),
-            ("Maaş Toplam (Sabit)", "Maaş", 315000, 1, "Havale"),
+            ("MaaÅŸ Toplam (Sabit)", "MaaÅŸ", 315000, 1, "Havale"),
         ]
         conn.executemany("""
             INSERT INTO recurring_rule(name, category, amount, day_of_month, pay_method, active)
@@ -578,7 +578,7 @@ def seed_defaults_if_empty(conn, start_month: str):
 
     if inst_count == 0:
         defaults_inst = [
-            ("Kredi Kartı Taksitleri (Toplam)", 36000, 6, start_month, "Kart"),
+            ("Kredi KartÄ± Taksitleri (Toplam)", 36000, 6, start_month, "Kart"),
         ]
         conn.executemany("""
             INSERT INTO installment_plan(name, total_amount, months_total, start_month, pay_method, active)
@@ -591,17 +591,17 @@ def seed_defaults_if_empty(conn, start_month: str):
 
 # ---------- MONEY FORMAT ----------
 def tr_money(x: float) -> str:
-    """₺150.000 format (TR)"""
+    """â‚º150.000 format (TR)"""
     try:
         s = format(float(x), ",.0f").replace(",", ".")
     except Exception:
         s = "0"
-    return f"₺{s}"
+    return f"â‚º{s}"
 
 def parse_amount_token(token: str) -> float | None:
     try:
         s = str(token).strip()
-        s = s.replace("₺", "").replace("TL", "").replace("tl", "")
+        s = s.replace("â‚º", "").replace("TL", "").replace("tl", "")
         s = re.sub(r"[^0-9,.\-]", "", s)
         if not s:
             return None
@@ -646,7 +646,7 @@ def extract_bank_visa_amounts(ocr_text: str) -> tuple[float | None, float | None
 
     # Primary mapping requested:
     # - "Banka" line -> Nakit
-    # - "Visa" line  -> Kredi Kartı
+    # - "Visa" line  -> Kredi KartÄ±
     for ln in lines:
         low = ln.lower()
         if bank_val is None and any(k in low for k in bank_primary_keywords):
@@ -711,17 +711,17 @@ def get_google_vision_client(api_key: str, svc_json: str):
         return vision.ImageAnnotatorClient(credentials=creds)
     if api_key:
         return vision.ImageAnnotatorClient(client_options={"api_key": api_key})
-    raise RuntimeError("Google Vision secrets tanımlı değil.")
+    raise RuntimeError("Google Vision secrets tanÄ±mlÄ± deÄŸil.")
 
 def is_ocr_available() -> tuple[bool, str]:
     has_google_lib = importlib.util.find_spec("google.cloud.vision") is not None
     gv_api_key, gv_svc_json = _google_vision_config()
     has_google_cfg = bool(gv_api_key or gv_svc_json)
     if has_google_lib and has_google_cfg:
-        return True, "Kullanılabilir OCR motoru: google-vision"
+        return True, "KullanÄ±labilir OCR motoru: google-vision"
     if has_google_cfg and not has_google_lib:
-        return False, "OCR devre dışı: Google Vision secrets var ama 'google-cloud-vision' paketi kurulu değil."
-    return False, "OCR devre dışı: Google Vision secrets eksik."
+        return False, "OCR devre dÄ±ÅŸÄ±: Google Vision secrets var ama 'google-cloud-vision' paketi kurulu deÄŸil."
+    return False, "OCR devre dÄ±ÅŸÄ±: Google Vision secrets eksik."
 
 def read_ocr_text(uploaded_file) -> str:
     gv_api_key, gv_svc_json = _google_vision_config()
@@ -731,7 +731,7 @@ def read_ocr_text(uploaded_file) -> str:
         image_bytes = uploaded_file.getvalue()
         response = client.document_text_detection(image=vision.Image(content=image_bytes))
         if response.error.message:
-            raise RuntimeError(f"Google Vision hatası: {response.error.message}")
+            raise RuntimeError(f"Google Vision hatasÄ±: {response.error.message}")
         full_text = ""
         if response.full_text_annotation and response.full_text_annotation.text:
             full_text = response.full_text_annotation.text
@@ -739,7 +739,7 @@ def read_ocr_text(uploaded_file) -> str:
             full_text = response.text_annotations[0].description
         if full_text.strip():
             return full_text
-    raise RuntimeError("Google Vision kullanılamıyor. Secrets ayarını kontrol et.")
+    raise RuntimeError("Google Vision kullanÄ±lamÄ±yor. Secrets ayarÄ±nÄ± kontrol et.")
 
 # ---------- DISPLAY HELPERS ----------
 def clean_category_series(s: pd.Series) -> pd.Series:
@@ -769,17 +769,17 @@ def format_expense_for_display(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "amount" in df.columns and "Tutar" not in df.columns:
         df["Tutar"] = df["amount"]
 
-    # Ödeme
+    # Ã–deme
     if "pay_method" in df.columns:
-        df["Ödeme"] = df["pay_method"]
+        df["Ã–deme"] = df["pay_method"]
     elif "Odeme" in df.columns:
-        df["Ödeme"] = df["Odeme"]
+        df["Ã–deme"] = df["Odeme"]
 
     # Kaynak
     if "source" in df.columns and "Kaynak" not in df.columns:
         df["Kaynak"] = df["source"]
 
-    # Notlar (otomatik satırlarda RULE/LOAN/INST gizle)
+    # Notlar (otomatik satÄ±rlarda RULE/LOAN/INST gizle)
     if "note" in df.columns:
         df["Notlar"] = clean_auto_notes(df, "note", "source" if "source" in df.columns else "")
     elif "Notlar" in df.columns:
@@ -791,7 +791,7 @@ def format_expense_for_display(df_raw: pd.DataFrame) -> pd.DataFrame:
             df.loc[mask, "Notlar"] = ""
         df["Notlar"] = df["Notlar"].replace("", pd.NA)
 
-    cols = [c for c in ["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"] if c in df.columns]
+    cols = [c for c in ["Tarih", "Kategori", "Tutar", "Ã–deme", "Kaynak", "Notlar"] if c in df.columns]
     return df[cols]
 
 def render_mobile_cards(
@@ -814,7 +814,7 @@ def render_mobile_cards(
         c = category_text.strip().lower()
         if "kira" in c:
             return "mobile-badge-rent"
-        if "maaş" in c or "maas" in c:
+        if "maaÅŸ" in c or "maas" in c:
             return "mobile-badge-salary"
         if "kredi" in c:
             return "mobile-badge-loan"
@@ -822,7 +822,7 @@ def render_mobile_cards(
             return "mobile-badge-installment"
         if "elektrik" in c or "su" in c or "gaz" in c or "internet" in c:
             return "mobile-badge-bills"
-        if "alışveriş" in c or "alisveris" in c:
+        if "alÄ±ÅŸveriÅŸ" in c or "alisveris" in c:
             return "mobile-badge-shopping"
         return "mobile-badge-category"
 
@@ -852,7 +852,7 @@ def render_mobile_cards(
             if field in badge_fields:
                 badge_cls = "mobile-badge-default"
                 normalized = val_str.strip().lower()
-                if field == "Ödeme":
+                if field == "Ã–deme":
                     if normalized == "nakit":
                         badge_cls = "mobile-badge-cash"
                     elif normalized == "kart":
@@ -913,7 +913,7 @@ def repair_text(s) -> str:
     if s is None:
         return ""
     text = str(s)
-    if any(token in text for token in ("Ã", "Ä", "Å", "â", "ğŸ", "ï")):
+    if any(token in text for token in ("Ãƒ", "Ã„", "Ã…", "Ã¢", "ÄŸÅ¸", "Ã¯")):
         try:
             text = text.encode("latin1").decode("utf-8")
         except Exception:
@@ -947,7 +947,7 @@ def get_pdf_fonts() -> tuple[str, str]:
             if bold_name not in pdfmetrics.getRegisteredFontNames():
                 pdfmetrics.registerFont(TTFont(bold_name, str(bold_path)))
             return regular_name, bold_name
-    raise RuntimeError("Unicode PDF font bulunamadı. DejaVu Sans veya Arial TTF erişilebilir olmalı.")
+    raise RuntimeError("Unicode PDF font bulunamadÄ±. DejaVu Sans veya Arial TTF eriÅŸilebilir olmalÄ±.")
 
 def _fig_to_imagereader(fig) -> ImageReader:
     buf = io.BytesIO()
@@ -1183,18 +1183,18 @@ def build_yearly_pdf(conn, year: int) -> bytes:
         fig = plt.figure()
         plt.plot(df["ym"], df["total"], label="Gelir")
         plt.plot(df["ym"], df["expense"], label="Gider")
-        plt.title("Aylık Gelir & Gider")
+        plt.title("AylÄ±k Gelir & Gider")
         plt.xlabel("Ay")
-        plt.ylabel("₺")
+        plt.ylabel("â‚º")
         plt.xticks(rotation=45, ha="right")
         plt.legend()
         charts.append(_fig_to_imagereader(fig))
 
         fig = plt.figure()
         plt.bar(df["ym"], df["net"])
-        plt.title("Aylık Net")
+        plt.title("AylÄ±k Net")
         plt.xlabel("Ay")
-        plt.ylabel("₺")
+        plt.ylabel("â‚º")
         plt.xticks(rotation=45, ha="right")
         charts.append(_fig_to_imagereader(fig))
 
@@ -1207,11 +1207,11 @@ def build_yearly_pdf(conn, year: int) -> bytes:
     pdf_draw(c, 2*cm, y, "Oldschool Esports Center Finans Raporu")
     y -= 0.8*cm
     c.setFont(pdf_regular, 11)
-    pdf_draw(c, 2*cm, y, f"Yıl: {year}    Oluşturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    pdf_draw(c, 2*cm, y, f"YÄ±l: {year}    OluÅŸturma: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 1.2*cm
 
     c.setFont(pdf_bold, 12)
-    pdf_draw(c, 2*cm, y, "Yıllık Özet")
+    pdf_draw(c, 2*cm, y, "YÄ±llÄ±k Ã–zet")
     y -= 0.6*cm
     c.setFont(pdf_regular, 11)
     for ln in [
@@ -1226,7 +1226,7 @@ def build_yearly_pdf(conn, year: int) -> bytes:
 
     y -= 0.3*cm
     c.setFont(pdf_bold, 12)
-    pdf_draw(c, 2*cm, y, "Aylık Tablo")
+    pdf_draw(c, 2*cm, y, "AylÄ±k Tablo")
     y -= 0.6*cm
     c.setFont(pdf_regular, 10)
     for _, r in df.iterrows():
@@ -1482,12 +1482,12 @@ def check_login():
     if st.session_state.authenticated:
         return True
 
-    st.title("🔐 Giriş Yap")
+    st.title("ğŸ” GiriÅŸ Yap")
     with st.form("login_form", clear_on_submit=False):
-        username = st.text_input("Kullanıcı Adı", key="login_username")
-        password = st.text_input("Şifre", type="password", key="login_password")
-        submitted = st.form_submit_button("Giriş", type="primary")
-    st.caption("Şifre alanındayken Enter ile giriş yapabilirsin.")
+        username = st.text_input("KullanÄ±cÄ± AdÄ±", key="login_username")
+        password = st.text_input("Åifre", type="password", key="login_password")
+        submitted = st.form_submit_button("GiriÅŸ", type="primary")
+    st.caption("Åifre alanÄ±ndayken Enter ile giriÅŸ yapabilirsin.")
 
     if submitted:
         auth_conn = get_conn()
@@ -1500,9 +1500,9 @@ def check_login():
                 st.session_state.auth_username = str(username).strip()
                 st.rerun()
             else:
-                st.error("Hatalı kullanıcı adı veya şifre")
+                st.error("HatalÄ± kullanÄ±cÄ± adÄ± veya ÅŸifre")
         except Exception as e:
-            st.error(f"Giriş doğrulaması başarısız: {e}")
+            st.error(f"GiriÅŸ doÄŸrulamasÄ± baÅŸarÄ±sÄ±z: {e}")
         finally:
             try:
                 auth_conn.close()
@@ -1558,39 +1558,39 @@ today = date.today()
 default_month = ym(today)
 
 with st.sidebar:
-    st.header("Ay Seçimi")
+    st.header("Ay SeÃ§imi")
     if "selected_month_ui" not in st.session_state or not is_valid_ym(st.session_state.selected_month_ui):
         st.session_state.selected_month_ui = default_month
 
     nav_l, nav_r = st.columns([1, 1])
     with nav_l:
-        if st.button("◀ Önceki", use_container_width=True):
+        if st.button("â—€ Ã–nceki", use_container_width=True):
             st.session_state.selected_month_ui = shift_ym(st.session_state.selected_month_ui, -1)
     with nav_r:
-        if st.button("Sonraki ▶", use_container_width=True):
+        if st.button("Sonraki â–¶", use_container_width=True):
             st.session_state.selected_month_ui = shift_ym(st.session_state.selected_month_ui, 1)
 
     month_options = [shift_ym(default_month, -i) for i in range(0, 18)]
     current_sel = st.session_state.selected_month_ui if st.session_state.selected_month_ui in month_options else default_month
-    quick_sel = st.selectbox("Hızlı Seçim", month_options, index=month_options.index(current_sel))
+    quick_sel = st.selectbox("HÄ±zlÄ± SeÃ§im", month_options, index=month_options.index(current_sel))
     st.session_state.selected_month_ui = quick_sel
 
-    with st.expander("Manuel giriş (YYYY-AA)"):
+    with st.expander("Manuel giriÅŸ (YYYY-AA)"):
         manual_month = st.text_input("Ay", value=st.session_state.selected_month_ui, key="manual_month_input")
         if st.button("Uygula", use_container_width=True):
             if is_valid_ym(manual_month.strip()):
                 st.session_state.selected_month_ui = manual_month.strip()
                 st.rerun()
             else:
-                st.warning(f"Geçersiz ay formatı: '{manual_month}'.")
+                st.warning(f"GeÃ§ersiz ay formatÄ±: '{manual_month}'.")
 
     selected_month = st.session_state.selected_month_ui.strip()
-    st.caption("Bu ay üzerinden raporlar gösterilir.")
+    st.caption("Bu ay Ã¼zerinden raporlar gÃ¶sterilir.")
     st.divider()
     if user_role == "admin":
         locked_now = is_month_locked(conn, selected_month)
-        lock_label = "🔒 Bu ay kilitli" if locked_now else "🔓 Bu ay açık"
-        new_locked = st.toggle(lock_label, value=locked_now, help="Kilitliyken bu ay için yeni kayıt ekleme/düzenleme kapatılır.")
+        lock_label = "ğŸ”’ Bu ay kilitli" if locked_now else "ğŸ”“ Bu ay aÃ§Ä±k"
+        new_locked = st.toggle(lock_label, value=locked_now, help="Kilitliyken bu ay iÃ§in yeni kayÄ±t ekleme/dÃ¼zenleme kapatÄ±lÄ±r.")
         if new_locked != locked_now:
             set_month_lock(conn, selected_month, new_locked)
             st.rerun()
@@ -1599,22 +1599,22 @@ with st.sidebar:
             st.success("Bu ayin otomatik giderleri yenilendi.")
             st.rerun()
     else:
-        st.caption("Yetki: Sadece Günlük Kasa")
+        st.caption("Yetki: Sadece GÃ¼nlÃ¼k Kasa")
     st.divider()
-    st.header("Menü")
+    st.header("MenÃ¼")
     if user_role == "admin":
-        page_options = ["🏠 Dashboard", "💰 Günlük Kasa", "🧾 Gider Yönetimi", "🔁 Sabitler (Kurallar)", "🏦 Krediler", "💳 Kart Taksitleri", "📤 Veri Dökümü", "⚙️ Ayarlar"]
+        page_options = ["ğŸ  Dashboard", "ğŸ’° GÃ¼nlÃ¼k Kasa", "ğŸ§¾ Gider YÃ¶netimi", "ğŸ” Sabitler (Kurallar)", "ğŸ¦ Krediler", "ğŸ’³ Kart Taksitleri", "ğŸ“¤ Veri DÃ¶kÃ¼mÃ¼", "âš™ï¸ Ayarlar"]
     else:
-        page_options = ["💰 Günlük Kasa"]
+        page_options = ["ğŸ’° GÃ¼nlÃ¼k Kasa"]
     if st.session_state.get("page_ui") not in page_options:
         st.session_state["page_ui"] = page_options[0]
     page = st.radio("Sayfa", page_options, key="page_ui")
     st.divider()
-    mobile_mode = st.toggle("Mobil görünüm", value=False, help="Dar ekranlarda daha rahat kullanım için düzeni sadeleştirir.")
+    mobile_mode = st.toggle("Mobil gÃ¶rÃ¼nÃ¼m", value=False, help="Dar ekranlarda daha rahat kullanÄ±m iÃ§in dÃ¼zeni sadeleÅŸtirir.")
     undo_action = st.session_state.get("undo_action")
     if undo_action:
-        st.caption(f"Son işlem: {undo_action.get('label', 'İşlem')}")
-        if st.button("↩️ Son işlemi geri al", use_container_width=True):
+        st.caption(f"Son iÅŸlem: {undo_action.get('label', 'Ä°ÅŸlem')}")
+        if st.button("â†©ï¸ Son iÅŸlemi geri al", use_container_width=True):
             ok, msg = apply_undo_action(conn)
             st.session_state["undo_flash"] = (ok, msg)
             st.rerun()
@@ -1625,8 +1625,8 @@ if st.session_state.get("_auto_generated_month") != selected_month:
     st.session_state["_auto_generated_month"] = selected_month
 
 # --------- DASHBOARD ----------
-if page == "🏠 Dashboard":
-    st.subheader(f"📌 {selected_month} Özeti")
+if page == "ğŸ  Dashboard":
+    st.subheader(f"ğŸ“Œ {selected_month} Ã–zeti")
 
     db_mode = "postgres" if USE_POSTGRES else "sqlite"
     rev, exp = load_dashboard_month_data(selected_month, db_mode)
@@ -1652,22 +1652,22 @@ if page == "🏠 Dashboard":
 
     year_sel = int(selected_month.split("-")[0])
     if mobile_mode:
-        if st.button("🔄 Yenile"):
+        if st.button("ğŸ”„ Yenile"):
             st.rerun()
-        st.download_button("Aylık Rapor", data=build_monthly_pdf_cached(selected_month, db_mode),
+        st.download_button("AylÄ±k Rapor", data=build_monthly_pdf_cached(selected_month, db_mode),
                            file_name=f"finans_raporu_{selected_month}.pdf", use_container_width=True)
-        st.download_button("Yıllık Rapor", data=build_yearly_pdf_cached(year_sel, db_mode),
+        st.download_button("YÄ±llÄ±k Rapor", data=build_yearly_pdf_cached(year_sel, db_mode),
                            file_name=f"finans_raporu_{year_sel}.pdf", use_container_width=True)
     else:
         a1, a3, a4 = st.columns([1, 1.2, 1.2])
         with a1:
-            if st.button("🔄 Yenile"):
+            if st.button("ğŸ”„ Yenile"):
                 st.rerun()
         with a3:
-            st.download_button("Aylık Rapor", data=build_monthly_pdf_cached(selected_month, db_mode),
+            st.download_button("AylÄ±k Rapor", data=build_monthly_pdf_cached(selected_month, db_mode),
                                file_name=f"finans_raporu_{selected_month}.pdf")
         with a4:
-            st.download_button("Yıllık Rapor", data=build_yearly_pdf_cached(year_sel, db_mode),
+            st.download_button("YÄ±llÄ±k Rapor", data=build_yearly_pdf_cached(year_sel, db_mode),
                                file_name=f"finans_raporu_{year_sel}.pdf")
 
     st.divider()
@@ -1686,14 +1686,14 @@ if page == "🏠 Dashboard":
                 render_mobile_cards(
                     rev_display,
                     fields=["Tarih", "Toplam", "Nakit", "Kart"],
-                    empty_text="Bu ay için günlük kasa girişi yok.",
+                    empty_text="Bu ay iÃ§in gÃ¼nlÃ¼k kasa giriÅŸi yok.",
                     amount_fields={"Toplam", "Nakit", "Kart"},
                     title_fields=["Tarih"],
                 )
             else:
                 st.dataframe(rev_display, use_container_width=True, hide_index=True)
         else:
-            st.info("Bu ay için günlük kasa girişi yok.")
+            st.info("Bu ay iÃ§in gÃ¼nlÃ¼k kasa giriÅŸi yok.")
 
     def render_expense_breakdown():
         st.markdown("<h3 style='text-align:center;'>Gider</h3>", unsafe_allow_html=True)
@@ -1704,7 +1704,7 @@ if page == "🏠 Dashboard":
                 render_mobile_cards(
                     by_cat,
                     fields=["Kategori", "Tutar"],
-                    empty_text="Bu ay için gider kaydı yok.",
+                    empty_text="Bu ay iÃ§in gider kaydÄ± yok.",
                     amount_fields={"Tutar"},
                     title_fields=["Kategori"],
                 )
@@ -1714,7 +1714,7 @@ if page == "🏠 Dashboard":
             chart_df = by_cat.set_index("Kategori")
             st.bar_chart(chart_df)
         else:
-            st.info("Bu ay için gider kaydı yok.")
+            st.info("Bu ay iÃ§in gider kaydÄ± yok.")
 
     if mobile_mode:
         render_income_table()
@@ -1733,11 +1733,11 @@ if page == "🏠 Dashboard":
         if mobile_mode:
             render_mobile_cards(
                 show,
-                fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
+                fields=["Tarih", "Kategori", "Tutar", "Ã–deme", "Kaynak", "Notlar"],
                 empty_text="Gider yok.",
                 amount_fields={"Tutar"},
                 title_fields=["Tarih"],
-                badge_fields={"Kategori", "Ödeme", "Kaynak"},
+                badge_fields={"Kategori", "Ã–deme", "Kaynak"},
             )
         else:
             st.dataframe(show, use_container_width=True, hide_index=True)
@@ -1745,10 +1745,10 @@ if page == "🏠 Dashboard":
         st.info("Gider yok.")
 
 # --------- DAILY CASH ----------
-elif page == "💰 Günlük Kasa":
-    st.subheader("💰 Günlük Kasa")
+elif page == "ğŸ’° GÃ¼nlÃ¼k Kasa":
+    st.subheader("ğŸ’° GÃ¼nlÃ¼k Kasa")
     if is_month_locked(conn, selected_month):
-        st.warning("Bu ay kilitli. Kayıt ekleme/düzenleme kapalı.")
+        st.warning("Bu ay kilitli. KayÄ±t ekleme/dÃ¼zenleme kapalÄ±.")
     if "cash_form_date" not in st.session_state:
         st.session_state.cash_form_date = today
     if "cash_form_cash" not in st.session_state:
@@ -1778,14 +1778,14 @@ elif page == "💰 Günlük Kasa":
         st.session_state.cash_form_last_loaded_date = selected_cash_date
         st.rerun()
 
-    cash = st.number_input("Nakit (₺)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_cash")
-    card = st.number_input("Kart (₺)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_card")
+    cash = st.number_input("Nakit (â‚º)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_cash")
+    card = st.number_input("Kart (â‚º)", min_value=0.0, step=100.0, format="%.2f", key="cash_form_card")
     note = st.text_input("Not (opsiyonel)", key="cash_form_note")
     st.caption(f"Toplam: {tr_money(float(cash) + float(card))}")
 
     locked = is_month_locked(conn, selected_month)
 
-    if st.button("Kaydet / Güncelle", type="primary", disabled=locked):
+    if st.button("Kaydet / GÃ¼ncelle", type="primary", disabled=locked):
         prev = conn.execute("SELECT d, cash, card, note FROM daily_cash WHERE d=?", (d.isoformat(),)).fetchone()
         conn.execute("""
             INSERT INTO daily_cash(d, cash, card, note)
@@ -1800,12 +1800,12 @@ elif page == "💰 Günlük Kasa":
             "type": "daily_cash_upsert",
             "d": d.isoformat(),
             "previous": prev_payload,
-            "label": f"Günlük Kasa ({d.isoformat()})",
+            "label": f"GÃ¼nlÃ¼k Kasa ({d.isoformat()})",
         })
-        st.success("Kaydedildi ✅")
+        st.success("Kaydedildi âœ…")
 
     st.divider()
-    st.markdown("### Seçili Ay Kayıtları")
+    st.markdown("### SeÃ§ili Ay KayÄ±tlarÄ±")
     start, end = month_range(selected_month)
     rev = df_query(conn, """
         SELECT d AS Tarih, cash AS Nakit, card AS Kart, (cash+card) AS Toplam, note AS Notlar
@@ -1817,7 +1817,7 @@ elif page == "💰 Günlük Kasa":
         render_mobile_cards(
             rev,
             fields=["Tarih", "Toplam", "Nakit", "Kart", "Notlar"],
-            empty_text="Bu ay için günlük kasa kaydı yok.",
+            empty_text="Bu ay iÃ§in gÃ¼nlÃ¼k kasa kaydÄ± yok.",
             amount_fields={"Toplam", "Nakit", "Kart"},
             title_fields=["Tarih"],
         )
@@ -1825,13 +1825,13 @@ elif page == "💰 Günlük Kasa":
         st.dataframe(rev, use_container_width=True, hide_index=True)
 
 # --------- MANUAL EXPENSE ----------
-elif page == "🧾 Gider Yönetimi":
-    st.subheader("🧾 Gider Yönetimi")
+elif page == "ğŸ§¾ Gider YÃ¶netimi":
+    st.subheader("ğŸ§¾ Gider YÃ¶netimi")
     if is_month_locked(conn, selected_month):
-        st.warning("Bu ay kilitli. Manuel gider ekleme/düzenleme kapalı.")
+        st.warning("Bu ay kilitli. Manuel gider ekleme/dÃ¼zenleme kapalÄ±.")
     active_categories = get_active_categories(conn)
     if len(active_categories) == 0:
-        st.error("Aktif kategori yok. Ayarlar bölümünden en az bir kategori aktif et.")
+        st.error("Aktif kategori yok. Ayarlar bÃ¶lÃ¼mÃ¼nden en az bir kategori aktif et.")
         st.stop()
 
     if "exp_form_date" not in st.session_state:
@@ -1844,20 +1844,23 @@ elif page == "🧾 Gider Yönetimi":
         st.session_state.exp_form_pay_method = "Nakit"
     if "exp_form_note" not in st.session_state:
         st.session_state.exp_form_note = ""
+    if st.session_state.pop("_reset_expense_form", False):
+        st.session_state.exp_form_amount = 0.0
+        st.session_state.exp_form_note = ""
 
     templates = {
-        "Kira (Havale)": {"category": "Kira", "pay_method": "Havale", "note": "Aylık kira"},
-        "İnternet (Havale)": {"category": "İnternet", "pay_method": "Havale", "note": "İnternet faturası"},
-        "Elektrik (Havale)": {"category": "Elektrik", "pay_method": "Havale", "note": "Elektrik faturası"},
-        "Alışveriş (Kart)": {"category": "Alışveriş", "pay_method": "Kart", "note": "Market/temel ihtiyaç"},
+        "Kira (Havale)": {"category": "Kira", "pay_method": "Havale", "note": "AylÄ±k kira"},
+        "Ä°nternet (Havale)": {"category": "Ä°nternet", "pay_method": "Havale", "note": "Ä°nternet faturasÄ±"},
+        "Elektrik (Havale)": {"category": "Elektrik", "pay_method": "Havale", "note": "Elektrik faturasÄ±"},
+        "AlÄ±ÅŸveriÅŸ (Kart)": {"category": "AlÄ±ÅŸveriÅŸ", "pay_method": "Kart", "note": "Market/temel ihtiyaÃ§"},
     }
 
     t1, t2 = st.columns([2, 1])
     with t1:
-        chosen_template = st.selectbox("Hızlı Şablon", ["Seçiniz"] + list(templates.keys()), key="exp_template_select")
+        chosen_template = st.selectbox("HÄ±zlÄ± Åablon", ["SeÃ§iniz"] + list(templates.keys()), key="exp_template_select")
     with t2:
         st.markdown("&nbsp;")
-        if st.button("Şablonu Uygula", use_container_width=True):
+        if st.button("Åablonu Uygula", use_container_width=True):
             if chosen_template in templates:
                 tpl = templates[chosen_template]
                 tpl_cat = tpl["category"] if tpl["category"] in active_categories else active_categories[0]
@@ -1868,8 +1871,8 @@ elif page == "🧾 Gider Yönetimi":
 
     d = st.date_input("Tarih", key="exp_form_date")
     category = st.selectbox("Kategori", active_categories, key="exp_form_category")
-    amount = st.number_input("Tutar (₺)", min_value=0.0, step=100.0, format="%.2f", key="exp_form_amount")
-    pay_method = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"], key="exp_form_pay_method")
+    amount = st.number_input("Tutar (â‚º)", min_value=0.0, step=100.0, format="%.2f", key="exp_form_amount")
+    pay_method = st.selectbox("Ã–deme Tipi", ["Nakit", "Kart", "Havale"], key="exp_form_pay_method")
     note = st.text_input("Not (opsiyonel)", key="exp_form_note")
 
     locked = is_month_locked(conn, selected_month)
@@ -1900,13 +1903,12 @@ elif page == "🧾 Gider Yönetimi":
                 "id": new_id,
                 "label": f"Gider Ekle ({d.isoformat()} | {category})",
             })
-        st.session_state.exp_form_amount = 0.0
-        st.session_state.exp_form_note = ""
-        st.success("Gider eklendi ✅")
+        st.session_state["_reset_expense_form"] = True
+        st.success("Gider eklendi.")
         st.rerun()
 
     st.divider()
-    st.markdown("### Seçili Ay Giderleri")
+    st.markdown("### SeÃ§ili Ay Giderleri")
     start, end = month_range(selected_month)
 
     exp_raw = df_query(conn, """
@@ -1916,36 +1918,36 @@ elif page == "🧾 Gider Yönetimi":
         ORDER BY d DESC
     """, (start.isoformat(), end.isoformat()))
 
-    # Ekranda gösterilecek tablo (otomatik notları gizler, kategoriyi temizler, Türkçe kolonlar)
+    # Ekranda gÃ¶sterilecek tablo (otomatik notlarÄ± gizler, kategoriyi temizler, TÃ¼rkÃ§e kolonlar)
     exp_disp = format_expense_for_display(exp_raw)
 
     if mobile_mode:
         render_mobile_cards(
             exp_disp,
-            fields=["Tarih", "Kategori", "Tutar", "Ödeme", "Kaynak", "Notlar"],
-            empty_text="Bu ay için gider kaydı yok.",
+            fields=["Tarih", "Kategori", "Tutar", "Ã–deme", "Kaynak", "Notlar"],
+            empty_text="Bu ay iÃ§in gider kaydÄ± yok.",
             amount_fields={"Tutar"},
             title_fields=["Tarih"],
-            badge_fields={"Kategori", "Ödeme", "Kaynak"},
+            badge_fields={"Kategori", "Ã–deme", "Kaynak"},
         )
     else:
         st.dataframe(exp_disp, use_container_width=True, hide_index=True)
 
     st.divider()
-    st.markdown("### ✏️ Manuel Gider Düzenle / Sil")
+    st.markdown("### âœï¸ Manuel Gider DÃ¼zenle / Sil")
 
     manual = exp_raw[exp_raw["source"].astype(str) == "manual"].copy() if len(exp_raw) else exp_raw
 
     if manual is None or len(manual) == 0:
-        st.info("Bu ay için düzenlenebilir (manuel) gider yok.")
+        st.info("Bu ay iÃ§in dÃ¼zenlenebilir (manuel) gider yok.")
     else:
-        # Seçim listesi için okunabilir etiket üretelim
+        # SeÃ§im listesi iÃ§in okunabilir etiket Ã¼retelim
         manual["note_disp"] = manual["note"].fillna("").astype(str)
         manual["label"] = (
             manual["d"].astype(str)
             + " | "
             + clean_category_series(manual["category"]).fillna("").astype(str)
-            + " | ₺"
+            + " | â‚º"
             + manual["amount"].astype(float).round(2).astype(str)
             + " | "
             + manual["pay_method"].astype(str)
@@ -1954,11 +1956,11 @@ elif page == "🧾 Gider Yönetimi":
         has_note = manual["note_disp"].str.len() > 0
         manual.loc[has_note, "label"] = manual.loc[has_note, "label"] + " | " + manual.loc[has_note, "note_disp"]
 
-        # En üstte en yeni gözüksün
+        # En Ã¼stte en yeni gÃ¶zÃ¼ksÃ¼n
         manual = manual.reset_index(drop=True)
 
         sel_id = st.selectbox(
-            "Düzenlenecek gideri seç",
+            "DÃ¼zenlenecek gideri seÃ§",
             options=manual["id"].tolist(),
             format_func=lambda _id: manual.loc[manual["id"] == _id, "label"].iloc[0],
         )
@@ -1967,18 +1969,18 @@ elif page == "🧾 Gider Yönetimi":
 
         # Form
         with st.form("edit_manual_expense"):
-            ed = st.date_input("Tarih (düzenle)", value=date.fromisoformat(str(row["d"])))
-            ecat = st.text_input("Kategori (düzenle)", value=str(row["category"]))
-            eamount = st.number_input("Tutar (₺) (düzenle)", min_value=0.0, step=100.0, format="%.2f", value=float(row["amount"]))
-            epm = st.selectbox("Ödeme Tipi (düzenle)", ["Nakit", "Kart", "Havale"], index=["Nakit","Kart","Havale"].index(str(row["pay_method"])) if str(row["pay_method"]) in ["Nakit","Kart","Havale"] else 0)
-            enote = st.text_input("Not (düzenle)", value=str(row["note"]) if pd.notna(row["note"]) else "")
+            ed = st.date_input("Tarih (dÃ¼zenle)", value=date.fromisoformat(str(row["d"])))
+            ecat = st.text_input("Kategori (dÃ¼zenle)", value=str(row["category"]))
+            eamount = st.number_input("Tutar (â‚º) (dÃ¼zenle)", min_value=0.0, step=100.0, format="%.2f", value=float(row["amount"]))
+            epm = st.selectbox("Ã–deme Tipi (dÃ¼zenle)", ["Nakit", "Kart", "Havale"], index=["Nakit","Kart","Havale"].index(str(row["pay_method"])) if str(row["pay_method"]) in ["Nakit","Kart","Havale"] else 0)
+            enote = st.text_input("Not (dÃ¼zenle)", value=str(row["note"]) if pd.notna(row["note"]) else "")
 
             if mobile_mode:
-                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
+                save = st.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
                 delete = st.form_submit_button("Sil", type="secondary")
             else:
                 c1, c2 = st.columns(2)
-                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
+                save = c1.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
                 delete = c2.form_submit_button("Sil", type="secondary")
 
         if save:
@@ -1998,9 +2000,9 @@ elif page == "🧾 Gider Yönetimi":
             set_undo_action({
                 "type": "expense_update",
                 "old": old_payload,
-                "label": f"Gider Güncelle (#{int(sel_id)})",
+                "label": f"Gider GÃ¼ncelle (#{int(sel_id)})",
             })
-            st.success("Gider güncellendi ✅")
+            st.success("Gider gÃ¼ncellendi âœ…")
             st.rerun()
 
         if delete:
@@ -2020,26 +2022,26 @@ elif page == "🧾 Gider Yönetimi":
                 "row": row_payload,
                 "label": f"Gider Sil (#{int(sel_id)})",
             })
-            st.success("Gider silindi ✅")
+            st.success("Gider silindi âœ…")
             st.rerun()
 
 
 # --------- RECURRING RULES ----------
-elif page == "🔁 Sabitler (Kurallar)":
-    st.subheader("🔁 Sabit Gider Kuralları")
-    st.caption("Her ay otomatik gider kaydı oluşturur. Bu sürüm ilk açılışta senin sabitlerini otomatik ekler.")
+elif page == "ğŸ” Sabitler (Kurallar)":
+    st.subheader("ğŸ” Sabit Gider KurallarÄ±")
+    st.caption("Her ay otomatik gider kaydÄ± oluÅŸturur. Bu sÃ¼rÃ¼m ilk aÃ§Ä±lÄ±ÅŸta senin sabitlerini otomatik ekler.")
     with st.form("rule_form"):
-        name = st.text_input("Kural Adı (örn: Kira)")
-        category = st.text_input("Kategori (örn: Kira)")
-        amount = st.number_input("Aylık Tutar (₺)", min_value=0.0, step=100.0, format="%.2f")
-        dom = st.number_input("Ayın Kaçı", min_value=1, max_value=28, step=1)
-        pay_method = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"])
+        name = st.text_input("Kural AdÄ± (Ã¶rn: Kira)")
+        category = st.text_input("Kategori (Ã¶rn: Kira)")
+        amount = st.number_input("AylÄ±k Tutar (â‚º)", min_value=0.0, step=100.0, format="%.2f")
+        dom = st.number_input("AyÄ±n KaÃ§Ä±", min_value=1, max_value=28, step=1)
+        pay_method = st.selectbox("Ã–deme Tipi", ["Nakit", "Kart", "Havale"])
         submitted = st.form_submit_button("Kural Ekle", type="primary")
     if submitted:
         conn.execute("INSERT INTO recurring_rule(name, category, amount, day_of_month, pay_method, active) VALUES(?,?,?,?,?,1)",
                      (name.strip(), category.strip(), float(amount), int(dom), pay_method))
         conn.commit()
-        st.success("Kural eklendi ✅")
+        st.success("Kural eklendi âœ…")
         auto_generate_for_month(conn, selected_month)
 
     st.divider()
@@ -2048,36 +2050,36 @@ elif page == "🔁 Sabitler (Kurallar)":
 
 
     st.divider()
-    st.markdown("### ✏️ Sabit Kural Düzenle / Sil")
+    st.markdown("### âœï¸ Sabit Kural DÃ¼zenle / Sil")
     raw_rules = df_query(conn, "SELECT id, name, category, amount, day_of_month, pay_method, active FROM recurring_rule ORDER BY id DESC")
     if len(raw_rules) == 0:
-        st.info("Düzenlenecek kural yok.")
+        st.info("DÃ¼zenlenecek kural yok.")
     else:
         sel = st.selectbox(
-            "Düzenlenecek kuralı seç",
+            "DÃ¼zenlenecek kuralÄ± seÃ§",
             raw_rules["id"].tolist(),
-            format_func=lambda rid: f"#{rid} • {raw_rules.loc[raw_rules['id']==rid, 'name'].iloc[0]}",
+            format_func=lambda rid: f"#{rid} â€¢ {raw_rules.loc[raw_rules['id']==rid, 'name'].iloc[0]}",
             key="rule_edit_select",
         )
         r = raw_rules.loc[raw_rules["id"] == sel].iloc[0]
 
         with st.form("rule_edit_form"):
-            e_name = st.text_input("Kural Adı", value=str(r["name"]), key="rule_edit_name")
+            e_name = st.text_input("Kural AdÄ±", value=str(r["name"]), key="rule_edit_name")
             e_cat  = st.text_input("Kategori", value=str(r["category"]), key="rule_edit_cat")
-            e_amt  = st.number_input("Aylık Tutar (₺)", min_value=0.0, step=100.0, format="%.2f", value=float(r["amount"]), key="rule_edit_amt")
-            e_dom  = st.number_input("Ayın Kaçı", min_value=1, max_value=28, step=1, value=int(r["day_of_month"]), key="rule_edit_dom")
-            e_pm   = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"], index=["Nakit","Kart","Havale"].index(str(r["pay_method"])), key="rule_edit_pm")
+            e_amt  = st.number_input("AylÄ±k Tutar (â‚º)", min_value=0.0, step=100.0, format="%.2f", value=float(r["amount"]), key="rule_edit_amt")
+            e_dom  = st.number_input("AyÄ±n KaÃ§Ä±", min_value=1, max_value=28, step=1, value=int(r["day_of_month"]), key="rule_edit_dom")
+            e_pm   = st.selectbox("Ã–deme Tipi", ["Nakit", "Kart", "Havale"], index=["Nakit","Kart","Havale"].index(str(r["pay_method"])), key="rule_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="rule_edit_active")
 
             if mobile_mode:
-                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = st.form_submit_button("Sil (Kalıcı)")
-                toggle = st.form_submit_button("Sadece Aktif/Pasif Değiştir")
+                save = st.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
+                delete = st.form_submit_button("Sil (KalÄ±cÄ±)")
+                toggle = st.form_submit_button("Sadece Aktif/Pasif DeÄŸiÅŸtir")
             else:
                 c1, c2, c3 = st.columns([1,1,1])
-                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = c2.form_submit_button("Sil (Kalıcı)")
-                toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
+                save = c1.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
+                delete = c2.form_submit_button("Sil (KalÄ±cÄ±)")
+                toggle = c3.form_submit_button("Sadece Aktif/Pasif DeÄŸiÅŸtir")
 
         if save:
             conn.execute(
@@ -2086,38 +2088,38 @@ elif page == "🔁 Sabitler (Kurallar)":
             )
             conn.commit()
             auto_generate_for_month(conn, selected_month)
-            st.success("Kural güncellendi ✅")
+            st.success("Kural gÃ¼ncellendi âœ…")
             st.rerun()
 
         if toggle:
             conn.execute("UPDATE recurring_rule SET active=? WHERE id=?", (0 if bool(int(r['active'])) else 1, int(sel)))
             conn.commit()
             auto_generate_for_month(conn, selected_month)
-            st.success("Kural durumu güncellendi ✅")
+            st.success("Kural durumu gÃ¼ncellendi âœ…")
             st.rerun()
 
         if delete:
             conn.execute("DELETE FROM recurring_rule WHERE id=?", (int(sel),))
             conn.commit()
-            st.success("Kural silindi ✅")
+            st.success("Kural silindi âœ…")
             st.rerun()
 
 # --------- LOANS ----------
-elif page == "🏦 Krediler":
-    st.subheader("🏦 Krediler (Belirli süreli)")
-    st.caption("Her ayın 1'inde otomatik gider kaydı düşer. İlk açılışta Araba/Okul kredisi otomatik eklenir.")
+elif page == "ğŸ¦ Krediler":
+    st.subheader("ğŸ¦ Krediler (Belirli sÃ¼reli)")
+    st.caption("Her ayÄ±n 1'inde otomatik gider kaydÄ± dÃ¼ÅŸer. Ä°lk aÃ§Ä±lÄ±ÅŸta Araba/Okul kredisi otomatik eklenir.")
     with st.form("loan_form"):
-        name = st.text_input("Kredi Adı")
-        monthly = st.number_input("Aylık Taksit (₺)", min_value=0.0, step=100.0, format="%.2f")
-        start_month = st.text_input("Başlangıç Ayı (YYYY-AA)", value=selected_month)
+        name = st.text_input("Kredi AdÄ±")
+        monthly = st.number_input("AylÄ±k Taksit (â‚º)", min_value=0.0, step=100.0, format="%.2f")
+        start_month = st.text_input("BaÅŸlangÄ±Ã§ AyÄ± (YYYY-AA)", value=selected_month)
         months_total = st.number_input("Toplam Ay", min_value=1, max_value=240, step=1, value=12)
-        pay_method = st.selectbox("Ödeme Tipi", ["Nakit", "Kart", "Havale"])
+        pay_method = st.selectbox("Ã–deme Tipi", ["Nakit", "Kart", "Havale"])
         submitted = st.form_submit_button("Kredi Ekle", type="primary")
     if submitted:
         conn.execute("INSERT INTO loan(name, monthly_amount, start_month, months_total, pay_method, active) VALUES(?,?,?,?,?,1)",
                      (name.strip(), float(monthly), start_month.strip(), int(months_total), pay_method))
         conn.commit()
-        st.success("Kredi eklendi ✅")
+        st.success("Kredi eklendi âœ…")
         auto_generate_for_month(conn, selected_month)
 
     st.divider()
@@ -2126,37 +2128,37 @@ elif page == "🏦 Krediler":
 
 
     st.divider()
-    st.markdown("### ✏️ Kredi Düzenle / Sil")
+    st.markdown("### âœï¸ Kredi DÃ¼zenle / Sil")
     raw_loans = df_query(conn, "SELECT id, name, monthly_amount, start_month, months_total, pay_method, active FROM loan ORDER BY id DESC")
     if len(raw_loans) == 0:
-        st.info("Düzenlenecek kredi yok.")
+        st.info("DÃ¼zenlenecek kredi yok.")
     else:
         sel = st.selectbox(
-            "Düzenlenecek krediyi seç",
+            "DÃ¼zenlenecek krediyi seÃ§",
             raw_loans["id"].tolist(),
-            format_func=lambda lid: f"#{lid} • {raw_loans.loc[raw_loans['id']==lid, 'name'].iloc[0]}",
+            format_func=lambda lid: f"#{lid} â€¢ {raw_loans.loc[raw_loans['id']==lid, 'name'].iloc[0]}",
             key="loan_edit_select",
         )
         r = raw_loans.loc[raw_loans["id"] == sel].iloc[0]
 
         with st.form("loan_edit_form"):
-            e_name = st.text_input("Kredi Adı", value=str(r["name"]), key="loan_edit_name")
-            e_monthly = st.number_input("Aylık Taksit (₺)", min_value=0.0, step=100.0, format="%.2f", value=float(r["monthly_amount"]), key="loan_edit_monthly")
-            e_start = st.text_input("Başlangıç Ayı (YYYY-AA)", value=str(r["start_month"]), key="loan_edit_start")
+            e_name = st.text_input("Kredi AdÄ±", value=str(r["name"]), key="loan_edit_name")
+            e_monthly = st.number_input("AylÄ±k Taksit (â‚º)", min_value=0.0, step=100.0, format="%.2f", value=float(r["monthly_amount"]), key="loan_edit_monthly")
+            e_start = st.text_input("BaÅŸlangÄ±Ã§ AyÄ± (YYYY-AA)", value=str(r["start_month"]), key="loan_edit_start")
             e_total = st.number_input("Toplam Ay", min_value=1, max_value=240, step=1, value=int(r["months_total"]), key="loan_edit_total")
             pm_opts = ["Nakit", "Kart", "Havale"]
-            e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="loan_edit_pm")
+            e_pm = st.selectbox("Ã–deme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="loan_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="loan_edit_active")
 
             if mobile_mode:
-                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = st.form_submit_button("Sil (Kalıcı)")
-                toggle = st.form_submit_button("Sadece Aktif/Pasif Değiştir")
+                save = st.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
+                delete = st.form_submit_button("Sil (KalÄ±cÄ±)")
+                toggle = st.form_submit_button("Sadece Aktif/Pasif DeÄŸiÅŸtir")
             else:
                 c1, c2, c3 = st.columns([1,1,1])
-                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = c2.form_submit_button("Sil (Kalıcı)")
-                toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
+                save = c1.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
+                delete = c2.form_submit_button("Sil (KalÄ±cÄ±)")
+                toggle = c3.form_submit_button("Sadece Aktif/Pasif DeÄŸiÅŸtir")
 
         if save:
             conn.execute(
@@ -2165,38 +2167,38 @@ elif page == "🏦 Krediler":
             )
             conn.commit()
             auto_generate_for_month(conn, selected_month)
-            st.success("Kredi güncellendi ✅")
+            st.success("Kredi gÃ¼ncellendi âœ…")
             st.rerun()
 
         if toggle:
             conn.execute("UPDATE loan SET active=? WHERE id=?", (0 if bool(int(r['active'])) else 1, int(sel)))
             conn.commit()
             auto_generate_for_month(conn, selected_month)
-            st.success("Kredi durumu güncellendi ✅")
+            st.success("Kredi durumu gÃ¼ncellendi âœ…")
             st.rerun()
 
         if delete:
             conn.execute("DELETE FROM loan WHERE id=?", (int(sel),))
             conn.commit()
-            st.success("Kredi silindi ✅")
+            st.success("Kredi silindi âœ…")
             st.rerun()
 
 # --------- INSTALLMENTS ----------
-elif page == "💳 Kart Taksitleri":
-    st.subheader("💳 Kart Taksitli Alımlar")
-    st.caption("Toplam tutar / taksit sayısı girilir. Sistem her ay eşit payı otomatik gider yazar. İlk açılışta 36.000/6 planı otomatik eklenir.")
+elif page == "ğŸ’³ Kart Taksitleri":
+    st.subheader("ğŸ’³ Kart Taksitli AlÄ±mlar")
+    st.caption("Toplam tutar / taksit sayÄ±sÄ± girilir. Sistem her ay eÅŸit payÄ± otomatik gider yazar. Ä°lk aÃ§Ä±lÄ±ÅŸta 36.000/6 planÄ± otomatik eklenir.")
     with st.form("inst_form"):
-        name = st.text_input("Plan Adı (örn: Malzeme alımı)")
-        total = st.number_input("Toplam Tutar (₺)", min_value=0.0, step=100.0, format="%.2f")
-        months_total = st.number_input("Taksit Sayısı (Ay)", min_value=1, max_value=60, step=1, value=6)
-        start_month = st.text_input("Başlangıç Ayı (YYYY-AA)", value=selected_month)
-        pay_method = st.selectbox("Ödeme Tipi", ["Kart", "Nakit", "Havale"], index=0)
+        name = st.text_input("Plan AdÄ± (Ã¶rn: Malzeme alÄ±mÄ±)")
+        total = st.number_input("Toplam Tutar (â‚º)", min_value=0.0, step=100.0, format="%.2f")
+        months_total = st.number_input("Taksit SayÄ±sÄ± (Ay)", min_value=1, max_value=60, step=1, value=6)
+        start_month = st.text_input("BaÅŸlangÄ±Ã§ AyÄ± (YYYY-AA)", value=selected_month)
+        pay_method = st.selectbox("Ã–deme Tipi", ["Kart", "Nakit", "Havale"], index=0)
         submitted = st.form_submit_button("Plan Ekle", type="primary")
     if submitted:
         conn.execute("INSERT INTO installment_plan(name, total_amount, months_total, start_month, pay_method, active) VALUES(?,?,?,?,?,1)",
                      (name.strip(), float(total), int(months_total), start_month.strip(), pay_method))
         conn.commit()
-        st.success("Taksit planı eklendi ✅")
+        st.success("Taksit planÄ± eklendi âœ…")
         auto_generate_for_month(conn, selected_month)
 
     st.divider()
@@ -2205,37 +2207,37 @@ elif page == "💳 Kart Taksitleri":
 
 
     st.divider()
-    st.markdown("### ✏️ Taksit Planı Düzenle / Sil")
+    st.markdown("### âœï¸ Taksit PlanÄ± DÃ¼zenle / Sil")
     raw_plans = df_query(conn, "SELECT id, name, total_amount, months_total, start_month, pay_method, active FROM installment_plan ORDER BY id DESC")
     if len(raw_plans) == 0:
-        st.info("Düzenlenecek taksit planı yok.")
+        st.info("DÃ¼zenlenecek taksit planÄ± yok.")
     else:
         sel = st.selectbox(
-            "Düzenlenecek taksit planını seç",
+            "DÃ¼zenlenecek taksit planÄ±nÄ± seÃ§",
             raw_plans["id"].tolist(),
-            format_func=lambda pid: f"#{pid} • {raw_plans.loc[raw_plans['id']==pid, 'name'].iloc[0]}",
+            format_func=lambda pid: f"#{pid} â€¢ {raw_plans.loc[raw_plans['id']==pid, 'name'].iloc[0]}",
             key="plan_edit_select",
         )
         r = raw_plans.loc[raw_plans["id"] == sel].iloc[0]
 
         with st.form("plan_edit_form"):
-            e_name = st.text_input("Plan Adı", value=str(r["name"]), key="plan_edit_name")
-            e_total = st.number_input("Toplam Tutar (₺)", min_value=0.0, step=100.0, format="%.2f", value=float(r["total_amount"]), key="plan_edit_total")
-            e_months = st.number_input("Taksit Sayısı (Ay)", min_value=1, max_value=60, step=1, value=int(r["months_total"]), key="plan_edit_months")
-            e_start = st.text_input("Başlangıç Ayı (YYYY-AA)", value=str(r["start_month"]), key="plan_edit_start")
+            e_name = st.text_input("Plan AdÄ±", value=str(r["name"]), key="plan_edit_name")
+            e_total = st.number_input("Toplam Tutar (â‚º)", min_value=0.0, step=100.0, format="%.2f", value=float(r["total_amount"]), key="plan_edit_total")
+            e_months = st.number_input("Taksit SayÄ±sÄ± (Ay)", min_value=1, max_value=60, step=1, value=int(r["months_total"]), key="plan_edit_months")
+            e_start = st.text_input("BaÅŸlangÄ±Ã§ AyÄ± (YYYY-AA)", value=str(r["start_month"]), key="plan_edit_start")
             pm_opts = ["Kart", "Nakit", "Havale"]
-            e_pm = st.selectbox("Ödeme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="plan_edit_pm")
+            e_pm = st.selectbox("Ã–deme Tipi", pm_opts, index=pm_opts.index(str(r["pay_method"])), key="plan_edit_pm")
             e_active = st.checkbox("Aktif", value=bool(int(r["active"])), key="plan_edit_active")
 
             if mobile_mode:
-                save = st.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = st.form_submit_button("Sil (Kalıcı)")
-                toggle = st.form_submit_button("Sadece Aktif/Pasif Değiştir")
+                save = st.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
+                delete = st.form_submit_button("Sil (KalÄ±cÄ±)")
+                toggle = st.form_submit_button("Sadece Aktif/Pasif DeÄŸiÅŸtir")
             else:
                 c1, c2, c3 = st.columns([1,1,1])
-                save = c1.form_submit_button("Kaydet (Güncelle)", type="primary")
-                delete = c2.form_submit_button("Sil (Kalıcı)")
-                toggle = c3.form_submit_button("Sadece Aktif/Pasif Değiştir")
+                save = c1.form_submit_button("Kaydet (GÃ¼ncelle)", type="primary")
+                delete = c2.form_submit_button("Sil (KalÄ±cÄ±)")
+                toggle = c3.form_submit_button("Sadece Aktif/Pasif DeÄŸiÅŸtir")
 
         if save:
             conn.execute(
@@ -2244,25 +2246,25 @@ elif page == "💳 Kart Taksitleri":
             )
             conn.commit()
             auto_generate_for_month(conn, selected_month)
-            st.success("Taksit planı güncellendi ✅")
+            st.success("Taksit planÄ± gÃ¼ncellendi âœ…")
             st.rerun()
 
         if toggle:
             conn.execute("UPDATE installment_plan SET active=? WHERE id=?", (0 if bool(int(r['active'])) else 1, int(sel)))
             conn.commit()
             auto_generate_for_month(conn, selected_month)
-            st.success("Taksit planı durumu güncellendi ✅")
+            st.success("Taksit planÄ± durumu gÃ¼ncellendi âœ…")
             st.rerun()
 
         if delete:
             conn.execute("DELETE FROM installment_plan WHERE id=?", (int(sel),))
             conn.commit()
-            st.success("Taksit planı silindi ✅")
+            st.success("Taksit planÄ± silindi âœ…")
             st.rerun()
 
 # --------- EXPORT ----------
-elif page == "📤 Veri Dökümü":
-    st.subheader("📤 Veri Dökümü (CSV)")
+elif page == "ğŸ“¤ Veri DÃ¶kÃ¼mÃ¼":
+    st.subheader("ğŸ“¤ Veri DÃ¶kÃ¼mÃ¼ (CSV)")
     start, end = month_range(selected_month)
 
     rev = df_query(conn, """
@@ -2279,60 +2281,60 @@ elif page == "📤 Veri Dökümü":
         ORDER BY d
     """, (start.isoformat(), end.isoformat()))
 
-    st.markdown("### Gelir (Günlük Kasa)")
+    st.markdown("### Gelir (GÃ¼nlÃ¼k Kasa)")
     st.dataframe(rev, use_container_width=True, hide_index=True)
     st.markdown("### Gider")
     exp_disp = format_expense_for_display(exp)
     st.dataframe(exp_disp, use_container_width=True, hide_index=True)
 
     if mobile_mode:
-        st.download_button("📥 Gelir CSV indir", data=rev.to_csv(index=False).encode("utf-8-sig"),
+        st.download_button("ğŸ“¥ Gelir CSV indir", data=rev.to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"gelir_{selected_month}.csv", use_container_width=True)
-        st.download_button("📥 Gider CSV indir", data=exp_disp.to_csv(index=False).encode("utf-8-sig"),
+        st.download_button("ğŸ“¥ Gider CSV indir", data=exp_disp.to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"gider_{selected_month}.csv", use_container_width=True)
     else:
         d1, d2 = st.columns(2)
         with d1:
-            st.download_button("📥 Gelir CSV indir", data=rev.to_csv(index=False).encode("utf-8-sig"),
+            st.download_button("ğŸ“¥ Gelir CSV indir", data=rev.to_csv(index=False).encode("utf-8-sig"),
                                file_name=f"gelir_{selected_month}.csv")
         with d2:
-            st.download_button("📥 Gider CSV indir", data=exp_disp.to_csv(index=False).encode("utf-8-sig"),
+            st.download_button("ğŸ“¥ Gider CSV indir", data=exp_disp.to_csv(index=False).encode("utf-8-sig"),
                                file_name=f"gider_{selected_month}.csv")
 
 
 # --------- SETTINGS ----------
-elif page == "⚙️ Ayarlar":
-    st.subheader("⚙️ Ayarlar")
-    st.markdown("### Şifre Değiştir")
+elif page == "âš™ï¸ Ayarlar":
+    st.subheader("âš™ï¸ Ayarlar")
+    st.markdown("### Åifre DeÄŸiÅŸtir")
     current_user = str(st.session_state.get("auth_username", "")).strip()
     current_role = str(st.session_state.get("user_role", "admin")).strip() or "admin"
     if current_user:
         with st.form("change_password_form"):
-            old_pw = st.text_input("Mevcut Şifre", type="password")
-            new_pw = st.text_input("Yeni Şifre", type="password")
-            new_pw2 = st.text_input("Yeni Şifre (Tekrar)", type="password")
-            pw_submit = st.form_submit_button("Şifreyi Güncelle", type="primary")
+            old_pw = st.text_input("Mevcut Åifre", type="password")
+            new_pw = st.text_input("Yeni Åifre", type="password")
+            new_pw2 = st.text_input("Yeni Åifre (Tekrar)", type="password")
+            pw_submit = st.form_submit_button("Åifreyi GÃ¼ncelle", type="primary")
 
         if pw_submit:
             if not old_pw or not new_pw or not new_pw2:
-                st.warning("Tüm alanları doldur.")
+                st.warning("TÃ¼m alanlarÄ± doldur.")
             elif new_pw != new_pw2:
-                st.warning("Yeni şifreler eşleşmiyor.")
+                st.warning("Yeni ÅŸifreler eÅŸleÅŸmiyor.")
             elif len(new_pw) < 4:
-                st.warning("Yeni şifre en az 4 karakter olmalı.")
+                st.warning("Yeni ÅŸifre en az 4 karakter olmalÄ±.")
             else:
                 role_ok = authenticate_user(conn, current_user, old_pw)
                 if role_ok is None:
-                    st.error("Mevcut şifre yanlış.")
+                    st.error("Mevcut ÅŸifre yanlÄ±ÅŸ.")
                 else:
                     change_user_password(conn, current_user, current_role, new_pw)
-                    st.success("Şifre güncellendi ✅")
+                    st.success("Åifre gÃ¼ncellendi âœ…")
     else:
-        st.info("Aktif kullanıcı bulunamadı.")
+        st.info("Aktif kullanÄ±cÄ± bulunamadÄ±.")
 
     st.divider()
     st.markdown("### Kategoriler")
-    st.caption("Kategorileri buradan ekleyip/pasif yapabilirsin. Pasif olanlar gider ekleme ekranında görünmez.")
+    st.caption("Kategorileri buradan ekleyip/pasif yapabilirsin. Pasif olanlar gider ekleme ekranÄ±nda gÃ¶rÃ¼nmez.")
 
     cats = df_query(conn, "SELECT name AS Kategori, active AS Aktif FROM categories ORDER BY name")
     edited = st.data_editor(
@@ -2348,7 +2350,7 @@ elif page == "⚙️ Ayarlar":
 
     save_container = st.container() if mobile_mode else st.columns([1, 3])[0]
     with save_container:
-        if st.button("💾 Kaydet", type="primary"):
+        if st.button("ğŸ’¾ Kaydet", type="primary"):
             df = edited.copy()
             df["Kategori"] = df["Kategori"].astype(str).str.strip()
             df = df[df["Kategori"] != ""].drop_duplicates(subset=["Kategori"])
@@ -2358,14 +2360,14 @@ elif page == "⚙️ Ayarlar":
                 [(r["Kategori"], 1 if bool(r["Aktif"]) else 0) for _, r in df.iterrows()]
             )
             conn.commit()
-            st.success("Kaydedildi ✅")
+            st.success("Kaydedildi âœ…")
             st.rerun()
 
     st.divider()
     st.markdown("### Yedekleme")
-    if st.button("🧩 Şimdi yedek al"):
+    if st.button("ğŸ§© Åimdi yedek al"):
         ensure_backup()
-        st.success("Yedek alındı ✅ (backups/ klasörüne)")
+        st.success("Yedek alÄ±ndÄ± âœ… (backups/ klasÃ¶rÃ¼ne)")
 
 
-st.caption("FINAL v4 • Soft Professional tema • PDF rapor (ay/yıl) • kategori yönetimi • ay kilitleme • otomatik yedekleme.")
+st.caption("FINAL v4 â€¢ Soft Professional tema â€¢ PDF rapor (ay/yÄ±l) â€¢ kategori yÃ¶netimi â€¢ ay kilitleme â€¢ otomatik yedekleme.")
